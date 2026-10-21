@@ -1,0 +1,69 @@
+name: Build unsigned iOS IPA
+
+# Run this from your fork's Actions tab. It does not publish a Release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios-ipa:
+    name: Compile iOS app and package IPA
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - name: Check out source and SDL submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust and iOS target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-ios
+
+      - name: Compile unsigned iOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project iphone/iDared32bit.xcodeproj \
+            -scheme 'iDared 32bit' \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/Classic32DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            DEVELOPMENT_TEAM='' \
+            PRODUCT_BUNDLE_IDENTIFIER='com.notdiscordofficial.classic32' \
+            INFOPLIST_KEY_CFBundleDisplayName='Classic32 Personal' \
+            build
+
+      - name: Package app as IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          products="$RUNNER_TEMP/Classic32DerivedData/Build/Products/Release-iphoneos"
+          app="$products/iDared 32bit.app"
+          if [ ! -d "$app" ]; then
+            echo 'Expected application bundle was not produced:' >&2
+            ls -la "$products" >&2 || true
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          ditto "$app" "$RUNNER_TEMP/ipa/Payload/$(basename "$app")"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/Classic32-unsigned.ipa" Payload)
+          unzip -l "$GITHUB_WORKSPACE/Classic32-unsigned.ipa" | head -25
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Classic32-unsigned-IPA
+          path: Classic32-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
