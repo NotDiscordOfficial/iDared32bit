@@ -10,13 +10,18 @@ permissions:
 jobs:
   build-ios-ipa:
     name: Compile iOS app and package IPA
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 120
     steps:
       - name: Check out source and SDL submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Check Xcode and iOS SDK versions
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
 
       - name: Install Rust and iOS target
         run: |
