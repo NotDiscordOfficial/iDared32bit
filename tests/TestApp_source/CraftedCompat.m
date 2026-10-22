@@ -50,14 +50,18 @@ int test_CraftedCompatCFArray(void) {
 
 int test_CraftedCompatNSDataURL(void) {
   NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-  NSURL *custom = [NSURL URLWithString:[NSString stringWithUTF8String:"crafted://missing-resource"]];
+  NSString *custom_string =
+      [NSString stringWithUTF8String:"crafted://missing-resource"];
+  NSURL *custom = [NSURL URLWithString:custom_string];
   NSData *data = [[NSData alloc] initWithContentsOfURL:custom];
   if (data != nil) {
     [data release];
     [pool drain];
     return -1;
   }
-  NSURL *relative = [NSURL URLWithString:[NSString stringWithUTF8String:"crafted_missing_resource.bin"]];
+  NSString *relative_string =
+      [NSString stringWithUTF8String:"crafted_missing_resource.bin"];
+  NSURL *relative = [NSURL URLWithString:relative_string];
   data = [[NSData alloc] initWithContentsOfURL:relative];
   if (data != nil) {
     [data release];
