@@ -3,6 +3,9 @@
 }
 + (void)classSelector {
 }
++ (int)classAnswer {
+  return 73;
+}
 - (void)instanceSelector {
 }
 - (int)answer {
@@ -85,5 +88,34 @@ int test_class_getInstanceMethod(void) {
     return -5;
   }
   [instance release];
+  return 0;
+}
+
+int test_class_getClassMethod(void) {
+  SEL class_sel = NSSelectorFromString(
+      [NSString stringWithUTF8String:"classAnswer"]);
+  SEL instance_sel = NSSelectorFromString(
+      [NSString stringWithUTF8String:"instanceSelector"]);
+  Class klass = [TestClass class];
+  Method method = class_getClassMethod(klass, class_sel);
+  if (method == 0 || test_method_name(method) != class_sel) {
+    return -1;
+  }
+  typedef int (*class_answer_imp)(id, SEL);
+  if (((class_answer_imp)test_method_imp(method))(klass, class_sel) != 73) {
+    return -2;
+  }
+  if (class_getClassMethod(klass, class_sel) != method) {
+    return -3;
+  }
+  if (class_getClassMethod(klass, instance_sel) != 0) {
+    return -4;
+  }
+  // Class methods inherited from NSObject are discoverable as well.
+  SEL class_method_sel = NSSelectorFromString(
+      [NSString stringWithUTF8String:"instancesRespondToSelector:"]);
+  if (class_getClassMethod(klass, class_method_sel) == 0) {
+    return -5;
+  }
   return 0;
 }
