@@ -1,0 +1,92 @@
+name: Crafted private runtime smoke tests
+
+# Optional: requires a repository variable CRAFTED_SMOKE_ENABLED=true
+# and a secret CRAFTED_TEST_ARCHIVE_URL pointing to a private ZIP of IPAs.
+# Neither the game IPAs nor the private ZIP are committed or uploaded as artifacts.
+on:
+  push:
+    branches: [idared32bit]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crafted-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  crafted-runtime:
+    if: ${{ vars.CRAFTED_SMOKE_ENABLED == 'true' }}
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      CRAFTED_TEST_ARCHIVE_URL: ${{ secrets.CRAFTED_TEST_ARCHIVE_URL }}
+      CRAFTED_TEST_ARCHIVE_SHA256: ${{ secrets.CRAFTED_TEST_ARCHIVE_SHA256 }}
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Check out emulator and SDL submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install compatible CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 \
+            "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-macos-universal.tar.gz" \
+            -o "$RUNNER_TEMP/cmake.tar.gz"
+          mkdir -p "$RUNNER_TEMP/cmake-install"
+          tar -xzf "$RUNNER_TEMP/cmake.tar.gz" -C "$RUNNER_TEMP/cmake-install"
+          cmake_bin="$RUNNER_TEMP/cmake-install/cmake-3.31.6-macos-universal/CMake.app/Contents/bin"
+          echo "$cmake_bin" >> "$GITHUB_PATH"
+          echo "CMAKE=$cmake_bin/cmake" >> "$GITHUB_ENV"
+
+      - name: Build macOS desktop emulator
+        run: cargo build --release --bin touchHLE
+
+      - name: Fetch private, unmodified test games
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$CRAFTED_TEST_ARCHIVE_URL" ]; then
+            echo "::error::Set the CRAFTED_TEST_ARCHIVE_URL repository secret to a privately hosted ZIP."
+            exit 1
+          fi
+          curl -fLsS --retry 3 --max-time 180 \
+            --output "$RUNNER_TEMP/crafted-games.zip" "$CRAFTED_TEST_ARCHIVE_URL"
+          if [ -n "$CRAFTED_TEST_ARCHIVE_SHA256" ]; then
+            printf '%s  %s\n' "$CRAFTED_TEST_ARCHIVE_SHA256" "$RUNNER_TEMP/crafted-games.zip" | shasum -a 256 -c -
+          fi
+          mkdir -p "$RUNNER_TEMP/crafted-games"
+          unzip -q "$RUNNER_TEMP/crafted-games.zip" -d "$RUNNER_TEMP/crafted-games"
+          count="$(find "$RUNNER_TEMP/crafted-games" -type f -iname '*.ipa' | wc -l | tr -d ' ')"
+          if [ "$count" -lt 1 ]; then
+            echo "::error::No game IPAs in test archive."
+            exit 1
+          fi
+          echo "Found $count private guest IPA files for the smoke test."
+
+      - name: Exercise the desktop emulator with each guest IPA
+        shell: bash
+        run: |
+          python3 .github/scripts/crafted-smoke.py \
+            --emulator target/release/touchHLE \
+            --games "$RUNNER_TEMP/crafted-games" \
+            --logs "$RUNNER_TEMP/crafted-logs" \
+            --seconds 30
+
+      - name: Save emulator logs (never the game IPAs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crafted-runtime-logs
+          path: ${{ runner.temp }}/crafted-logs/*.log
+          if-no-files-found: ignore
+          retention-days: 3
