@@ -109,6 +109,22 @@ impl ObjC {
     }
 }
 
+/// Return a callable guest IMP for a selector, including methods implemented
+/// by the host. The latter use the objc_msgSend trampoline, which has the
+/// same calling convention and dispatches to the host method at call time.
+pub(crate) fn method_implementation_for_selector(
+    env: &mut Environment,
+    class: Class,
+    selector: SEL,
+) -> IMP {
+    let method = class_getInstanceMethod(env, class, selector);
+    if method.is_null() {
+        IMP::guest_null()
+    } else {
+        IMP::Guest(env.mem.read(method).imp)
+    }
+}
+
 pub const DYLIB: HostDylib = HostDylib {
     path: "/usr/lib/libobjc.A.dylib",
     aliases: &["/usr/lib/libobjc.dylib"],
