@@ -11,7 +11,9 @@
 use super::cf_allocator::{kCFAllocatorDefault, CFAllocatorRef};
 use super::CFIndex;
 use crate::abi::{CallFromHost, GuestFunction};
-use crate::dyld::{export_c_func, ConstantExports, Dyld, FunctionExports, HostConstant, HostFunction};
+use crate::dyld::{
+    export_c_func, ConstantExports, Dyld, FunctionExports, HostConstant, HostFunction,
+};
 use crate::frameworks::core_foundation::{CFRelease, CFRetain};
 use crate::frameworks::foundation::ns_array::ArrayHostObject;
 use crate::frameworks::foundation::NSUInteger;
@@ -92,7 +94,8 @@ fn CFArrayCreateMutable(
     capacity: CFIndex,
     callbacks: ConstVoidPtr, // TODO, should be `const CFArrayCallBacks*`
 ) -> CFMutableArrayRef {
-    assert!(allocator == kCFAllocatorDefault || env.mem.read(allocator).is_system_default()); // unimplemented
+    // TODO: support custom allocators.
+    assert!(allocator == kCFAllocatorDefault || env.mem.read(allocator).is_system_default());
     // CFArrayCreateMutable accepts zero for variable capacity and otherwise
     // a nonnegative requested capacity. Modern CoreFoundation grows as needed.
     assert!(capacity >= 0);
