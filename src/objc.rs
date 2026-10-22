@@ -48,8 +48,7 @@ use crate::Environment;
 use classes::{
     class_getClassMethod, class_getInstanceMethod, class_getInstanceSize,
     class_getMethodImplementation, class_getProperty, class_getSuperclass, class_replaceMethod,
-    objc_getClass, ClassHostObject,
-    FakeClass, UnimplementedClass,
+    objc_getClass, ClassHostObject, FakeClass, UnimplementedClass,
 };
 pub(crate) use messages::objc_msgSend;
 use messages::{objc_msgSendSuper2, objc_msgSend_stret, MsgSendSignature, MsgSendSuperSignature};
