@@ -125,6 +125,16 @@ pub(crate) fn method_implementation_for_selector(
     }
 }
 
+/// Return a callable guest pointer for a Method obtained from the runtime.
+/// Host-defined implementations already have a guest objc_msgSend trampoline
+/// in the method handle created by class_getInstanceMethod.
+fn method_getImplementation(env: &mut Environment, method: MutPtr<method_t>) -> IMP {
+    if method.is_null() {
+        return IMP::guest_null();
+    }
+    IMP::Guest(env.mem.read(method).imp)
+}
+
 pub const DYLIB: HostDylib = HostDylib {
     path: "/usr/lib/libobjc.A.dylib",
     aliases: &["/usr/lib/libobjc.dylib"],
@@ -162,6 +172,7 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(class_getProperty(_, _)),
     export_c_func!(class_getClassMethod(_, _)),
     export_c_func!(class_getInstanceMethod(_, _)),
+    export_c_func!(method_getImplementation(_)),
     export_c_func!(class_getMethodImplementation(_, _)),
     export_c_func!(class_replaceMethod(_, _, _, _)),
     export_c_func!(objc_msgSend(_, _)),
