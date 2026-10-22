@@ -66,12 +66,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.class_has_method(this, selector)
 }
 
-/// Get the implementation of an instance method, including inherited methods.
+// Get the implementation of an instance method, including inherited methods.
 + (IMP)instanceMethodForSelector:(SEL)selector {
     crate::objc::method_implementation_for_selector(env, this, selector)
 }
 
-/// Get the implementation of a class method through this class's metaclass.
+// Get the implementation of a class method through this class's metaclass.
 + (IMP)methodForSelector:(SEL)selector {
     let metaclass = ObjC::read_isa(this, &env.mem);
     crate::objc::method_implementation_for_selector(env, metaclass, selector)
@@ -263,7 +263,7 @@ forUndefinedKey:(id)key { // NSString*
     env.objc.object_has_method(&env.mem, this, selector)
 }
 
-/// Return the callable implementation for an instance method.
+// Return the callable implementation for an instance method.
 - (IMP)methodForSelector:(SEL)selector {
     let class = ObjC::read_isa(this, &env.mem);
     crate::objc::method_implementation_for_selector(env, class, selector)
