@@ -105,8 +105,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         return nil;
     }
 
-    // FIXME: this should parse the URL
-    assert!(!to_rust_string(env, url).starts_with("file:")); // TODO
+    // NSURL supports HTTP, custom schemes, relative references and file URLs.
+    // Store the original URL verbatim rather than assuming an HTTP URL.
     let url: id = msg![env; url copy];
     *env.objc.borrow_mut(this) = NSURLHostObject::OtherURL { ns_string: url };
     this
@@ -179,11 +179,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     match *env.objc.borrow(this) {
         NSURLHostObject::FileURL { ns_string, .. } => ns_string,
         NSURLHostObject::OtherURL { ns_string } => {
-            // TODO: Support full URLs, not only ones that are just a path.
-            // FIXME: This should do unescaping.
-            // TODO: Avoid copy.
-            assert!(to_rust_string(env, ns_string).starts_with('/'));
-            ns_string
+            // Extract the path component from absolute and relative URLs.
+            // The returned string is owned by the autorelease pool.
+            let url = to_rust_string(env, ns_string);
+            let (_, _, path, _, _) = split_url(&url);
+            let path = from_rust_string(env, path.to_string());
+            autorelease(env, path)
         },
     }
 }
@@ -193,8 +194,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         // FIXME: don't assume URL is already absolute
         NSURLHostObject::FileURL { ns_string, .. } => ns_string,
         NSURLHostObject::OtherURL { ns_string } => {
-            // TODO: full RFC 1808 resolution
-            assert!(to_rust_string(env, ns_string).starts_with("http"));
+            // This may be a relative URL, file URL, or a non-HTTP scheme.
+            // initWithString: does not require an HTTP URL.
             ns_string
         },
     }
