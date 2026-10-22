@@ -816,7 +816,9 @@ fn cf_array_retain_value(
 ) -> id {
     if let Some(callbacks) = callbacks {
         if !callbacks.retain.to_ptr().is_null() {
-            return callbacks.retain.call_from_host(env, (kCFAllocatorDefault, object));
+            return callbacks
+                .retain
+                .call_from_host(env, (kCFAllocatorDefault, object));
         }
     }
     object
