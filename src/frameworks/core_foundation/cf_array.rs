@@ -86,8 +86,9 @@ pub const CONSTANTS: ConstantExports = &[(
     "_kCFTypeArrayCallBacks",
     HostConstant::Custom(|env| {
         let callbacks = make_default_callbacks(&mut env.mem, &mut env.dyld);
-        let callbacks_ptr = env.mem.alloc_and_write(callbacks);
-        env.mem.alloc_and_write(callbacks_ptr).cast().cast_const()
+        // kCFTypeArrayCallBacks is a C struct constant, not a pointer
+        // constant. Guest code passes &kCFTypeArrayCallBacks directly.
+        env.mem.alloc_and_write(callbacks).cast().cast_const()
     }),
 )];
 
