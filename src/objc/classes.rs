@@ -1139,6 +1139,20 @@ pub(super) fn class_getInstanceMethod(
     ptr
 }
 
+/// Return the class method with this selector, searching the metaclass chain.
+/// The same method handle representation is used for instance and class methods.
+pub(super) fn class_getClassMethod(
+    env: &mut Environment,
+    cls: Class,
+    name: SEL,
+) -> MutPtr<method_t> {
+    if cls == nil {
+        return Ptr::null();
+    }
+    let metaclass = ObjC::read_isa(cls, &env.mem);
+    class_getInstanceMethod(env, metaclass, name)
+}
+
 pub(super) fn class_getMethodImplementation(env: &mut Environment, cls: Class, name: SEL) -> IMP {
     if cls == nil {
         return IMP::guest_null();
