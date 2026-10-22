@@ -134,9 +134,20 @@ pub const CLASSES: ClassExports = objc_classes! {
         msg![env; this initWithContentsOfFile:ns_path]
     } else {
         let absolute_str: id = msg![env; url absoluteString];
-        let path = to_rust_string(env, absolute_str);
-        assert!(path.starts_with("http"));
-        log!("TODO: ignoring [(NSData*){:?} initWithContentsOfURL:{:?}]", this, path);
+        let url_string = to_rust_string(env, absolute_str).to_string();
+        // URLs created with initWithString: may contain a file: scheme,
+        // relative paths, or custom schemes, not just HTTP(S). Attempt
+        // filesystem access for local URLs and fail gracefully if absent.
+        let local_path = if url_string.starts_with("file:") || !url_string.contains(':') {
+            let ns_path: id = msg![env; url path];
+            Some(ns_path)
+        } else {
+            None
+        };
+        if let Some(ns_path) = local_path {
+            return msg![env; this initWithContentsOfFile:ns_path];
+        }
+        log!("TODO: unsupported network URL in [(NSData*){:?} initWithContentsOfURL:{:?}]", this, url_string);
         release(env, this);
         nil
     }
