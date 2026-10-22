@@ -49,7 +49,8 @@ fn default_release(env: &mut Environment, _allocator: CFAllocatorRef, value: Con
 }
 
 fn default_copy_description(env: &mut Environment, value: ConstVoidPtr) -> CFArrayRef {
-    let description: id = msg![env; (value.cast_mut().cast()) description];
+    let object: id = value.cast_mut().cast();
+    let description: id = msg![env; object description];
     msg![env; description copy]
 }
 
@@ -57,7 +58,9 @@ fn default_equal(env: &mut Environment, left: ConstVoidPtr, right: ConstVoidPtr)
     if left == right {
         return true;
     }
-    msg![env; (left.cast_mut().cast()) isEqual:(right.cast_mut().cast())]
+    let left: id = left.cast_mut().cast();
+    let right: id = right.cast_mut().cast();
+    msg![env; left isEqual:right]
 }
 
 fn make_default_callbacks(mem: &mut Mem, dyld: &mut Dyld) -> CFArrayCallBacks {
