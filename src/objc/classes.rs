@@ -1140,7 +1140,7 @@ pub(super) fn class_getInstanceMethod(
 }
 
 /// Return the class method with this selector, searching the metaclass chain.
-/// The same method handle representation is used for instance and class methods.
+/// Both instance and class methods use the same method handle representation.
 pub(super) fn class_getClassMethod(
     env: &mut Environment,
     cls: Class,
