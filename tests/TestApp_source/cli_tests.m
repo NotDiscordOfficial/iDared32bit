@@ -56,6 +56,9 @@ int test_AutoreleasePool(void);         // AutoReleasePoolTest.m
 int test_CGAffineTransform(void);       // CGAffineTransform.c
 int test_RespondsToSelector(void);      // RespondsToSelector.m
 int test_class_getInstanceMethod(void); // RespondsToSelector.m
+int test_class_getClassMethod(void);    // RespondsToSelector.m
+int test_CraftedCompatCFArray(void);    // CraftedCompat.m
+int test_CraftedCompatNSDataURL(void);  // CraftedCompat.m
 int test_Initialize(void);              // Initialize.m
 
 #ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
@@ -7202,6 +7205,9 @@ struct {
     FUNC_DEF(test_wcsftime),
     FUNC_DEF(test_RespondsToSelector),
     FUNC_DEF(test_class_getInstanceMethod),
+    FUNC_DEF(test_class_getClassMethod),
+    FUNC_DEF(test_CraftedCompatCFArray),
+    FUNC_DEF(test_CraftedCompatNSDataURL),
     FUNC_DEF(test_NSKeyedArchiver_encodeIntForKey),
     FUNC_DEF(test_NSKeyedArchiver_NSKeyedUnarchiver),
     FUNC_DEF(test_NSKeyedArchiver_NSDictionary_of_NSArray_of_NSStrings),
