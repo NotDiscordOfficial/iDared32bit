@@ -10,15 +10,15 @@
 
 use super::cf_allocator::{kCFAllocatorDefault, CFAllocatorRef};
 use super::CFIndex;
-use crate::abi::{CallFromHost, GuestFunction};
+use crate::abi::GuestFunction;
 use crate::dyld::{
     export_c_func, ConstantExports, Dyld, FunctionExports, HostConstant, HostFunction,
 };
 use crate::frameworks::core_foundation::{CFRelease, CFRetain};
 use crate::frameworks::foundation::ns_array::ArrayHostObject;
 use crate::frameworks::foundation::NSUInteger;
-use crate::mem::{ConstPtr, ConstVoidPtr, Mem, SafeRead};
-use crate::objc::{id, msg, msg_class, nil};
+use crate::mem::{ConstVoidPtr, Mem, SafeRead};
+use crate::objc::{id, msg, msg_class};
 use crate::Environment;
 
 #[allow(dead_code)]
@@ -106,7 +106,8 @@ fn CFArrayCreateMutable(
         None
     } else {
         let callbacks = env.mem.read(callbacks.cast::<CFArrayCallBacks>());
-        assert_eq!(callbacks.version, 0);
+        let version = callbacks.version;
+        assert_eq!(version, 0);
         Some(callbacks)
     };
 
