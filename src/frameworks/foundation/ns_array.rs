@@ -14,6 +14,8 @@ use super::{
     NSRange, NSUInteger,
 };
 use crate::abi::{CallFromHost, DotDotDot, GuestFunction};
+use crate::frameworks::core_foundation::cf_allocator::kCFAllocatorDefault;
+use crate::frameworks::core_foundation::cf_array::CFArrayCallBacks;
 use crate::frameworks::foundation::ns_keyed_archiver::{
     encode_object, get_value_to_encode_for_current_key,
 };
@@ -38,6 +40,7 @@ impl HostObject for ObjectEnumeratorHostObject {}
 #[derive(Debug, Default)]
 pub(super) struct ArrayHostObject {
     pub(super) array: Vec<id>,
+    pub(super) cf_callbacks: Option<CFArrayCallBacks>,
 }
 impl HostObject for ArrayHostObject {}
 
@@ -355,6 +358,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(ArrayHostObject {
         array: Vec::new(),
+        cf_callbacks: None,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -475,299 +479,89 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
-// Special variant for use by CFArray with NULL callbacks: objects aren't
-// necessarily Objective-C objects and won't be retained/released.
-@implementation _touchHLE_NSArray_non_retaining: _touchHLE_NSArray
-
-- (())dealloc {
-    env.objc.dealloc_object(this, &mut env.mem)
-}
-
-@end
-
-@implementation _touchHLE_NSArray_ObjectEnumerator: NSEnumerator
-
-- (id)nextObject {
-    let host_obj = env.objc.borrow_mut::<ObjectEnumeratorHostObject>(this);
-    host_obj.iterator.next().unwrap_or(nil)
-}
-
-- (())dealloc {
-    let host_obj = env.objc.borrow::<ObjectEnumeratorHostObject>(this);
-    release(env, host_obj.array);
-    env.objc.dealloc_object(this, &mut env.mem)
-}
-
-@end
-
-// Our private subclass that is the single implementation of NSMutableArray for
-// the time being.
-@implementation _touchHLE_NSMutableArray: NSMutableArray
-
-+ (id)allocWithZone:(NSZonePtr)_zone {
-    let host_object = Box::new(ArrayHostObject {
-        array: Vec::new(),
-    });
-    env.objc.alloc_object(this, host_object, &mut env.mem)
-}
-
-- (id)initWithCapacity:(NSUInteger)capacity {
-    env.objc.borrow_mut::<ArrayHostObject>(this).array.reserve(capacity as usize);
-    this
-}
-
-- (id)initWithObjects:(id)first_obj, ...args {
-    init_with_objects_inner(env, this, first_obj, args);
-    this
-}
-
-- (id)initWithArray:(id)array { // NSArray*
-    let mut objects = Vec::new();
-    let enumerator: id = msg![env; array objectEnumerator];
-    loop {
-        let next: id = msg![env; enumerator nextObject];
-        if next == nil {
-            break;
-        }
-        objects.push(next);
-        retain(env, next);
-    }
-    env.objc.borrow_mut::<ArrayHostObject>(this).array = objects;
-    this
-}
-
-// NSCoding implementation
-- (id)initWithCoder:(id)coder {
-    init_with_coder_inner(env, this, coder)
-}
-- (())encodeWithCoder:(id)coder {
-    encode_with_coder_inner(env, this, coder)
-}
-
-// NSCopying implementation
-- (id)copyWithZone:(NSZonePtr)_zone {
-    let arr: id = msg_class![env; NSArray alloc];
-    let array = env.objc.borrow::<ArrayHostObject>(this).array.clone();
-    for &object in &array {
-        retain(env, object);
-    }
-    env.objc.borrow_mut::<ArrayHostObject>(arr).array = array;
-    arr
-}
-
-// NSMutableCopying implementation
-- (id)mutableCopyWithZone:(NSZonePtr)_zone {
-    mutable_copy_inner(env, this)
-}
-
-- (())dealloc {
-    let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
-    let array = std::mem::take(&mut host_object.array);
-
-    for object in array {
-        release(env, object);
-    }
-
-    env.objc.dealloc_object(this, &mut env.mem)
-}
-
-- (())makeObjectsPerformSelector:(SEL)sel {
-    let count: NSUInteger = msg![env; this count];
-    for idx in 0..count {
-        let obj: id = msg![env; this objectAtIndex:idx];
-        let _: id = msg![env; obj performSelector:sel];
-    }
-}
-
-- (id)objectEnumerator { // NSEnumerator*
-    object_enumerator_inner(env, this)
-}
-- (id)reverseObjectEnumerator { // NSEnumerator*
-    reverse_object_enumerator_inner(env, this)
-}
-
-- (())sortUsingFunction:(GuestFunction)comparator
-                context:(MutVoidPtr)context {
-    let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
-    let mut array = std::mem::take(&mut host_object.array);
-    let len = array.len().try_into().unwrap();
-    let mut user_data = (env, &mut array);
-    qsort_generic(
-        &mut user_data,
-        len,
-        &mut |(env, array), l, r| {
-            let (l, r): (usize, usize) = (l.try_into().unwrap(), r.try_into().unwrap());
-            comparator.call_from_host(env, (array[l], array[r], context))
-        },
-        &mut |(_, array), l, r| {
-            let (l, r): (usize, usize) = (l.try_into().unwrap(), r.try_into().unwrap());
-            array.swap(l, r);
-        },
-    );
-    let (env, _) = user_data;
-    env.objc.borrow_mut::<ArrayHostObject>(this).array = array;
-}
-
-- (())sortUsingSelector:(SEL)comparator {
-    let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
-    let mut array = std::mem::take(&mut host_object.array);
-    let len = array.len().try_into().unwrap();
-    let mut user_data = (env, &mut array);
-    qsort_generic(
-        &mut user_data,
-        len,
-        &mut |(env, array), l, r| {
-            let (l, r): (usize, usize) = (l.try_into().unwrap(), r.try_into().unwrap());
-            let res: NSComparisonResult = msg_send(env, (array[l], comparator, array[r]));
-            res
-        },
-        &mut |(_, array), l, r| {
-            let (l, r): (usize, usize) = (l.try_into().unwrap(), r.try_into().unwrap());
-            array.swap(l, r);
-        },
-    );
-
-    let (env, _) = user_data;
-    env.objc.borrow_mut::<ArrayHostObject>(this).array = array;
-}
-
-- (())sortUsingDescriptors:(id)descriptors { // NSArray<NSSortDescriptor*>*
-    let descriptors = env.objc.borrow::<ArrayHostObject>(descriptors).array.clone();
-    let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
-    let mut array = std::mem::take(&mut host_object.array);
-    let len = array.len().try_into().unwrap();
-    let mut user_data = (env, &mut array);
-    qsort_generic(
-        &mut user_data,
-        len,
-        &mut |(env, array), l, r| {
-            let (l, r): (usize, usize) = (l.try_into().unwrap(), r.try_into().unwrap());
-            for &descriptor in &descriptors {
-                let res: NSComparisonResult =
-                    msg![env; descriptor compareObject:(array[l]) toObject:(array[r])];
-                if res != 0 {
-                    return res;
-                }
-            }
-            0
-        },
-        &mut |(_, array), l, r| {
-            let (l, r): (usize, usize) = (l.try_into().unwrap(), r.try_into().unwrap());
-            array.swap(l, r);
-        },
-    );
-
-    let (env, _) = user_data;
-    env.objc.borrow_mut::<ArrayHostObject>(this).array = array;
-}
-
-// NSFastEnumeration implementation
-- (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
-                                  objects:(MutPtr<id>)stackbuf
-                                    count:(NSUInteger)len {
-    // TODO: check that array wasn't mutated!
-    let count: NSUInteger = msg![env; this count];
-    fast_enumeration_helper(env, this, |env, idx| {
-        if idx < count {
-            msg![env; this objectAtIndex:idx]
-        } else {
-            nil
-        }
-    }, state, stackbuf, len)
-}
-
-- (NSUInteger)count {
-    env.objc.borrow::<ArrayHostObject>(this).array.len().try_into().unwrap()
-}
-- (id)objectAtIndex:(NSUInteger)index {
-    // TODO: throw real exception rather than panic if out-of-bounds?
-    env.objc.borrow::<ArrayHostObject>(this).array[index as usize]
-}
-
-- (id)description {
-    build_description(env, this)
-}
-
-// TODO: more mutation methods
-
-- (())insertObject:(id)object
-           atIndex:(NSUInteger)index {
-    retain(env, object);
-    env.objc.borrow_mut::<ArrayHostObject>(this).array.insert(index as usize, object);
-}
-
-- (())addObject:(id)object {
-    retain(env, object);
-    env.objc.borrow_mut::<ArrayHostObject>(this).array.push(object);
-}
-
-- (())removeObject:(id)object {
-    let mut to_remove = Vec::new();
-    let count: NSUInteger = msg![env; this count];
-    for i in 0..count {
-        let curr_object: id = msg![env; this objectAtIndex:i];
-        let equal: bool = msg![env; object isEqual:curr_object];
-        if equal {
-            to_remove.push(i);
-        }
-    }
-    // TODO: runtime here is O(n^2), it could be O(n) instead
-    for i in to_remove {
-        () = msg![env; this removeObjectAtIndex:i];
-    }
-}
-
-- (())removeObjectAtIndex:(NSUInteger)index {
-    let object = env.objc.borrow_mut::<ArrayHostObject>(this).array.remove(index as usize);
-    release(env, object)
-}
-
-- (())replaceObjectAtIndex:(NSUInteger)index withObject:(id)obj {
-    retain(env, obj);
-    let object = std::mem::replace(&mut env.objc.borrow_mut::<ArrayHostObject>(this).array[index as usize], obj);
-    release(env, object);
-}
-
-- (())removeLastObject {
-    let object = env.objc.borrow_mut::<ArrayHostObject>(this).array.pop().unwrap();
-    release(env, object)
-}
-
-- (())removeAllObjects {
-    let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
-    let array = std::mem::take(&mut host_object.array);
-    for object in array {
-        release(env, object);
-    }
-
-    env.objc.borrow_mut::<ArrayHostObject>(this).array = Vec::new()
-}
-
-@end
-
-// Special variant for use by CFArray with NULL callbacks: objects aren't
-// necessarily Objective-C objects and won't be retained/released.
+// Special variant for CoreFoundation arrays. Unlike normal NSMutableArray,
+// these use the CFArrayCallBacks supplied at creation rather than assuming
+// every pointer is an Objective-C object.
 @implementation _touchHLE_NSMutableArray_non_retaining: _touchHLE_NSMutableArray
 
 - (())dealloc {
+    let callbacks = env.objc.borrow::<ArrayHostObject>(this).cf_callbacks;
+    let elements = std::mem::take(&mut env.objc.borrow_mut::<ArrayHostObject>(this).array);
+    for element in elements {
+        cf_array_release_value(env, callbacks, element);
+    }
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
 - (())addObject:(id)object {
-    env.objc.borrow_mut::<ArrayHostObject>(this).array.push(object);
+    let callbacks = env.objc.borrow::<ArrayHostObject>(this).cf_callbacks;
+    let value = cf_array_retain_value(env, callbacks, object);
+    env.objc.borrow_mut::<ArrayHostObject>(this).array.push(value);
+}
+
+- (())insertObject:(id)object atIndex:(NSUInteger)index {
+    let callbacks = env.objc.borrow::<ArrayHostObject>(this).cf_callbacks;
+    let value = cf_array_retain_value(env, callbacks, object);
+    env.objc.borrow_mut::<ArrayHostObject>(this).array.insert(index as usize, value);
+}
+
+- (())replaceObjectAtIndex:(NSUInteger)index withObject:(id)object {
+    let callbacks = env.objc.borrow::<ArrayHostObject>(this).cf_callbacks;
+    let value = cf_array_retain_value(env, callbacks, object);
+    let previous = std::mem::replace(
+        &mut env.objc.borrow_mut::<ArrayHostObject>(this).array[index as usize],
+        value,
+    );
+    cf_array_release_value(env, callbacks, previous);
 }
 
 - (())removeObjectAtIndex:(NSUInteger)index {
-    env.objc.borrow_mut::<ArrayHostObject>(this).array.remove(index as usize);
+    let callbacks = env.objc.borrow::<ArrayHostObject>(this).cf_callbacks;
+    let removed = env.objc.borrow_mut::<ArrayHostObject>(this).array.remove(index as usize);
+    cf_array_release_value(env, callbacks, removed);
 }
 
 - (())removeLastObject {
-    env.objc.borrow_mut::<ArrayHostObject>(this).array.pop().unwrap();
+    let callbacks = env.objc.borrow::<ArrayHostObject>(this).cf_callbacks;
+    let removed = env.objc.borrow_mut::<ArrayHostObject>(this).array.pop().unwrap();
+    cf_array_release_value(env, callbacks, removed);
+}
+
+- (())removeAllObjects {
+    let callbacks = env.objc.borrow::<ArrayHostObject>(this).cf_callbacks;
+    let elements = std::mem::take(&mut env.objc.borrow_mut::<ArrayHostObject>(this).array);
+    for element in elements {
+        cf_array_release_value(env, callbacks, element);
+    }
 }
 
 @end
 
 };
+
+
+fn cf_array_retain_value(
+    env: &mut Environment,
+    callbacks: Option<CFArrayCallBacks>,
+    object: id,
+) -> id {
+    if let Some(callbacks) = callbacks {
+        if !callbacks.retain.to_ptr().is_null() {
+            return callbacks.retain.call_from_host(env, (kCFAllocatorDefault, object));
+        }
+    }
+    object
+}
+
+fn cf_array_release_value(env: &mut Environment, callbacks: Option<CFArrayCallBacks>, object: id) {
+    if let Some(callbacks) = callbacks {
+        if !callbacks.release.to_ptr().is_null() {
+            let _: () = callbacks
+                .release
+                .call_from_host(env, (kCFAllocatorDefault, object));
+        }
+    }
+}
 
 /// Shortcut for host code, roughly equivalent to
 /// `[[NSArray alloc] initWithObjects:count]` but without copying.
