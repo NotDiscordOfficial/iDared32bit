@@ -22,7 +22,7 @@ use crate::libc::semaphore::{host_destroy_semaphore, sem_wait};
 use crate::mem::MutVoidPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, msg_send_no_type_checking, nil, objc_classes,
-    retain, Class, ClassExports, IMP, NSZonePtr, ObjC, TrivialHostObject, SEL,
+    retain, Class, ClassExports, NSZonePtr, ObjC, TrivialHostObject, IMP, SEL,
 };
 
 pub const CLASSES: ClassExports = objc_classes! {
