@@ -4,7 +4,7 @@ name: Crafted private runtime smoke tests
 # and CRAFTED_VAULT_READ_TOKEN as a secret. The token needs Contents:read
 # only on the PRIVATE NotDiscordOfficial/CraftedTestVault repository.
 # That private repo should have a release tagged crafted-fixtures-v1 whose
-# assets are the three original, unmodified Crafted IPA files.
+# assets are the two distinct, unmodified Crafted IPA files (1.0.1 and 1.0.2).
 # Legacy fallback: CRAFTED_TEST_ARCHIVE_URL secret for a private ZIP of IPAs.
 # No IPA is committed, written to the public repository, or uploaded as an artifact.
 on:
@@ -89,8 +89,8 @@ jobs:
             exit 1
           fi
 
-          # Whitelist the exact three original, unmodified user-supplied IPAs.
-          # Both 1.0.1 copies have the same hash, while 1.0.2 differs.
+          # Whitelist the two distinct original, unmodified user-supplied IPAs.
+          # The 'cracked' and 'decrypted' 1.0.1 files are identical.
           python3 - <<'PY'
           from collections import Counter
           import hashlib
@@ -99,7 +99,7 @@ jobs:
           root = Path(os.environ["RUNNER_TEMP"]) / "crafted-games"
           ipas = sorted(f for f in root.rglob("*") if f.is_file() and f.suffix.lower() == ".ipa")
           expected = Counter({
-              "d0468e7dba522fd0cc6583c73128d09ffd489c595bdf4eedcf6fec448dbbb9e3": 2,
+              "d0468e7dba522fd0cc6583c73128d09ffd489c595bdf4eedcf6fec448dbbb9e3": 1,
               "293721b87e9f8b5d421cc3345d51d68cd79d42fa0c37296bfe13596615929bfa": 1,
           })
           actual = Counter()
@@ -110,8 +110,8 @@ jobs:
                       digest.update(chunk)
               actual[digest.hexdigest()] += 1
           if actual != expected:
-              raise SystemExit("Private test fixtures do not match the three original IPA checksums.")
-          print("Verified three unchanged private IPA inputs by SHA-256.")
+              raise SystemExit("Private test fixtures do not match the two distinct original IPA checksums.")
+          print("Verified two unchanged private IPA inputs by SHA-256.")
           PY
 
       - name: Exercise the desktop emulator with each guest IPA
