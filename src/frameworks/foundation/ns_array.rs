@@ -38,9 +38,9 @@ impl HostObject for ObjectEnumeratorHostObject {}
 
 /// Belongs to _touchHLE_NSArray
 #[derive(Debug, Default)]
-pub(super) struct ArrayHostObject {
-    pub(super) array: Vec<id>,
-    pub(super) cf_callbacks: Option<CFArrayCallBacks>,
+pub(crate) struct ArrayHostObject {
+    pub(crate) array: Vec<id>,
+    pub(crate) cf_callbacks: Option<CFArrayCallBacks>,
 }
 impl HostObject for ArrayHostObject {}
 
@@ -815,10 +815,9 @@ fn cf_array_retain_value(
     object: id,
 ) -> id {
     if let Some(callbacks) = callbacks {
-        if !callbacks.retain.to_ptr().is_null() {
-            return callbacks
-                .retain
-                .call_from_host(env, (kCFAllocatorDefault, object));
+        let retain = callbacks.retain;
+        if !retain.to_ptr().is_null() {
+            return retain.call_from_host(env, (kCFAllocatorDefault, object));
         }
     }
     object
@@ -826,10 +825,9 @@ fn cf_array_retain_value(
 
 fn cf_array_release_value(env: &mut Environment, callbacks: Option<CFArrayCallBacks>, object: id) {
     if let Some(callbacks) = callbacks {
-        if !callbacks.release.to_ptr().is_null() {
-            let _: () = callbacks
-                .release
-                .call_from_host(env, (kCFAllocatorDefault, object));
+        let release = callbacks.release;
+        if !release.to_ptr().is_null() {
+            let _: () = release.call_from_host(env, (kCFAllocatorDefault, object));
         }
     }
 }
