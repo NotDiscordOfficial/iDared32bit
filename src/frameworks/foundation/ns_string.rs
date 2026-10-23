@@ -1807,6 +1807,14 @@ pub fn to_rust_string(env: &mut Environment, string: id) -> Cow<'static, str> {
         .unwrap()
 }
 
+/// Return the fastest encoding for the string's current host representation.
+pub fn fastest_encoding(env: &mut Environment, string: id) -> NSStringEncoding {
+    match env.objc.borrow::<StringHostObject>(string) {
+        StringHostObject::Utf8(_) => NSUTF8StringEncoding,
+        StringHostObject::Utf16(_) => NSUTF16StringEncoding,
+    }
+}
+
 /// Shortcut for host code, calls a callback once for each UTF-16 code-unit in a
 /// string. This is equivalent to a for loop using the `length` and
 /// `characterAtIndex:` methods, but much more efficient.
