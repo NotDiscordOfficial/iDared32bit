@@ -347,6 +347,11 @@ fn CFStringGetFileSystemRepresentation(
     msg![env; string getFileSystemRepresentation:buffer maxLength:max_buflen]
 }
 
+fn CFStringGetFastestEncoding(env: &mut Environment, the_string: CFStringRef) -> CFStringEncoding {
+    let encoding = ns_string::fastest_encoding(env, the_string);
+    CFStringConvertNSStringEncodingToEncoding(env, encoding)
+}
+
 fn CFStringGetLength(env: &mut Environment, the_string: CFStringRef) -> CFIndex {
     let length: NSUInteger = msg![env; the_string length];
     length.try_into().unwrap()
@@ -469,6 +474,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFStringGetCString(_, _, _, _)),
     export_c_func!(CFStringGetBytes(_, _, _, _, _, _, _, _)),
     export_c_func!(CFStringGetFileSystemRepresentation(_, _, _)),
+    export_c_func!(CFStringGetFastestEncoding(_)),
     export_c_func!(CFStringGetIntValue(_)),
     export_c_func!(CFStringGetLength(_)),
     export_c_func!(CFStringFind(_, _, _)),
