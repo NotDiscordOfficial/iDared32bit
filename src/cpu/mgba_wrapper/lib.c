@@ -539,8 +539,8 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
         is_call = true;
         call_target = instruction_pc + 8u + offset;
       } else if ((opcode & 0xfe000000u) == 0xfa000000u) {
-        uint32_t immediate = ((opcode & 0x00ffffffu) << 2) |
-                             ((opcode >> 23) & 2u);
+        uint32_t immediate =
+            ((opcode & 0x00ffffffu) << 2) | ((opcode >> 23) & 2u);
         int32_t offset = ((int32_t)(immediate << 6)) >> 6;
         is_call = true;
         call_target = ((instruction_pc + 8u + offset) & ~1u) | 1u;
