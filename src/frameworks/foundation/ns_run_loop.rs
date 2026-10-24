@@ -17,6 +17,7 @@ use crate::frameworks::core_animation::ca_transaction;
 use crate::frameworks::core_foundation::cf_run_loop::{
     kCFRunLoopCommonModes, kCFRunLoopDefaultMode, CFRunLoopRef,
 };
+use crate::frameworks::system_configuration::sc_network_reachability;
 use crate::frameworks::{core_animation, media_player, uikit};
 use crate::libc::semaphore::{host_create_semaphore, sem_post, sem_t};
 use crate::mem::MutPtr;
@@ -51,6 +52,7 @@ pub struct ThreadLocalState {
 
 struct NSRunLoopHostObject {
     audio_units: Vec<AudioUnit>,
+    reachability_sources: Vec<ReachabilitySource>,
     /// Weak reference. Audio queue must remove itself when destroyed (TODO).
     /// They are in no particular order.
     audio_queues: Vec<AudioQueueRef>,
@@ -61,6 +63,13 @@ struct NSRunLoopHostObject {
     timers: Vec<id>,
 }
 impl HostObject for NSRunLoopHostObject {}
+
+#[derive(Clone, Copy)]
+struct ReachabilitySource {
+    target: id,
+    mode: id,
+    last_notified_flags: Option<u32>,
+}
 
 #[derive(Clone, Debug)]
 struct ObjectSelectorSource {
@@ -133,6 +142,65 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+
+pub fn add_reachability_source(env: &mut Environment, run_loop: id, target: id, mode: id) {
+    let sources = &mut env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop).reachability_sources;
+    if sources.iter().any(|source| source.target == target && source.mode == mode) {
+        return;
+    }
+    // As on iOS, scheduling retains its target until explicitly unscheduled.
+    retain(env, target);
+    retain(env, mode);
+    env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop)
+        .reachability_sources.push(ReachabilitySource {
+            target,
+            mode,
+            last_notified_flags: None,
+        });
+}
+
+pub fn remove_reachability_source(
+    env: &mut Environment,
+    run_loop: id,
+    target: id,
+    mode: id,
+) -> bool {
+    let sources = &mut env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop).reachability_sources;
+    let Some(index) = sources.iter().position(|source| source.target == target && source.mode == mode) else {
+        return false;
+    };
+    sources.remove(index);
+    release(env, target);
+    release(env, mode);
+    true
+}
+
+fn handle_reachability_sources(env: &mut Environment, run_loop: id) {
+    // Snapshot before invoking guest callbacks: a callback may unschedule itself.
+    let sources = env.objc.borrow::<NSRunLoopHostObject>(run_loop).reachability_sources.clone();
+    for source in sources {
+        let Some(flags) = sc_network_reachability::callback_flags(env, source.target) else {
+            continue;
+        };
+        let should_notify = {
+            let sources = &mut env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop).reachability_sources;
+            if let Some(entry) = sources.iter_mut().find(|entry| entry.target == source.target && entry.mode == source.mode) {
+                if entry.last_notified_flags == Some(flags) {
+                    false
+                } else {
+                    entry.last_notified_flags = Some(flags);
+                    true
+                }
+            } else {
+                false
+            }
+        };
+        if should_notify {
+            sc_network_reachability::notify_callback(env, source.target, flags);
+        }
+    }
+}
 
 /// For use by Audio Toolbox.
 pub fn add_audio_unit(env: &mut Environment, run_loop: id, unit: AudioUnit) {
@@ -367,6 +435,8 @@ pub fn run_run_loop(
             limit_sleep_time(&mut sleep_until, next_due);
             release(env, timer);
         }
+
+        handle_reachability_sources(env, run_loop);
 
         // TODO: We currently don't properly handle if an audio queue or audio
         // unit gets deleted while inside another queue's handler. Fixing this

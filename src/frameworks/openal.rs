@@ -928,8 +928,47 @@ fn alSpeedOfSound(env: &mut Environment, value: ALfloat) {
 
 // TODO: more functions
 
-// Note: For some reasons Wolf3d registers many OpenAl functions, but actually
-// uses only few ones. To workaround this, we just provide stubs.
+// Some older titles probe OpenAL/ALC capabilities during initialization.
+// Resolve supported queries against the actual SDL-backed mixer rather than
+// crashing or reporting that unsupported functionality has succeeded.
+
+const ALC_MAJOR_VERSION: ALCint = 0x1000;
+const ALC_MINOR_VERSION: ALCint = 0x1001;
+const ALC_ATTRIBUTES_SIZE: ALCint = 0x1002;
+const ALC_ALL_ATTRIBUTES: ALCint = 0x1003;
+
+/// Core 1.1 context attributes. The mixer supports more than these advertised
+/// minimum source counts; they are not arbitrary limits enforced on sources.
+fn alc_context_attributes(frequency: ALCint, refresh: ALCint) -> [ALCint; 11] {
+    [
+        ALC_FREQUENCY, frequency,
+        ALC_REFRESH, refresh,
+        ALC_SYNC, 0,
+        ALC_MONO_SOURCES, 128,
+        ALC_STEREO_SOURCES, 16,
+        0,
+    ]
+}
+
+fn alc_integer_query(
+    param: ALCenum,
+    frequency: ALCint,
+    refresh: ALCint,
+) -> Option<Vec<ALCint>> {
+    let attrs = alc_context_attributes(frequency, refresh);
+    match param {
+        ALC_MAJOR_VERSION | ALC_MINOR_VERSION => Some(vec![1]),
+        ALC_ATTRIBUTES_SIZE => Some(vec![attrs.len() as ALCint]),
+        ALC_ALL_ATTRIBUTES => Some(attrs.to_vec()),
+        ALC_FREQUENCY => Some(vec![frequency]),
+        ALC_REFRESH => Some(vec![refresh]),
+        ALC_SYNC => Some(vec![0]),
+        ALC_MONO_SOURCES => Some(vec![128]),
+        ALC_STEREO_SOURCES => Some(vec![16]),
+        _ => None,
+    }
+}
+
 
 fn alcGetEnumValue(
     _env: &mut Environment,
@@ -939,13 +978,41 @@ fn alcGetEnumValue(
     todo!();
 }
 fn alcGetIntegerv(
-    _env: &mut Environment,
-    _device: MutPtr<GuestALCdevice>,
-    _param: ALenum,
-    _size: ALCsizei,
-    _values: MutPtr<ALCint>,
+    env: &mut Environment,
+    device: MutPtr<GuestALCdevice>,
+    param: ALCenum,
+    size: ALCsizei,
+    values: MutPtr<ALCint>,
 ) {
-    todo!();
+    let valid_device = if device.is_null() {
+        param == ALC_MAJOR_VERSION || param == ALC_MINOR_VERSION
+    } else {
+        State::get(env).devices.contains_key(&device)
+    };
+    if !valid_device || values.is_null() || size <= 0 {
+        log!("alcGetIntegerv: invalid device, output buffer or size");
+        return;
+    }
+    let (frequency, refresh) = env
+        .openal_manager
+        .as_ref()
+        .map(|manager| manager.output_frequency_and_refresh())
+        .unwrap_or((44100, 43));
+    let Some(result) = alc_integer_query(param, frequency, refresh) else {
+        log!("alcGetIntegerv: unsupported parameter {param:#x}");
+        return;
+    };
+    if (size as usize) < result.len() {
+        log!(
+            "alcGetIntegerv: output size {} too small for {} values",
+            size,
+            result.len()
+        );
+        return;
+    }
+    for (index, value) in result.into_iter().enumerate() {
+        env.mem.write(values + index, value);
+    }
 }
 fn alcIsExtensionPresent(
     _env: &mut Environment,
@@ -989,6 +1056,23 @@ fn alGetProcAddress(env: &mut Environment, funcName: ConstPtr<u8>) -> MutVoidPtr
 }
 fn alIsEnabled(_env: &mut Environment, _capability: ALenum) -> ALboolean {
     todo!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn alc_integer_queries_report_valid_core_context_attributes() {
+        let attrs = alc_integer_query(ALC_ALL_ATTRIBUTES, 48000, 50).unwrap();
+        assert_eq!(attrs.len(), 11);
+        assert_eq!(attrs[0..6], [ALC_FREQUENCY, 48000, ALC_REFRESH, 50, ALC_SYNC, 0]);
+        assert_eq!(attrs[10], 0);
+        assert_eq!(alc_integer_query(ALC_ATTRIBUTES_SIZE, 48000, 50), Some(vec![11]));
+        assert_eq!(alc_integer_query(ALC_MAJOR_VERSION, 48000, 50), Some(vec![1]));
+        assert_eq!(alc_integer_query(ALC_MINOR_VERSION, 48000, 50), Some(vec![1]));
+        assert_eq!(alc_integer_query(-1, 48000, 50), None);
+    }
 }
 
 pub const FUNCTIONS: FunctionExports = &[

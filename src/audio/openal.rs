@@ -610,6 +610,7 @@ impl Default for ContextState {
 #[derive(Default)]
 struct MixerState {
     device_rate: f64,
+    device_samples: usize,
     out_channels: usize,
     contexts: HashMap<u32, ContextState>,
     next_context_id: u32,
@@ -618,6 +619,7 @@ impl MixerState {
     fn new() -> Self {
         MixerState {
             device_rate: 44100.0,
+            device_samples: 1024,
             out_channels: 2,
             contexts: HashMap::new(),
             next_context_id: 1,
@@ -704,6 +706,17 @@ pub struct OpenALManager {
     _audio_subsystem: Option<AudioSubsystem>,
 }
 impl OpenALManager {
+    /// Query the actual output rate and callback frequency negotiated with SDL.
+    /// This remains defined for headless testing, which has no audio device.
+    pub fn output_frequency_and_refresh(&self) -> (ALCint, ALCint) {
+        let state = self.mixer.lock().unwrap();
+        let rate = state.device_rate.round() as ALCint;
+        let refresh = (state.device_rate / state.device_samples.max(1) as f64)
+            .round()
+            .max(1.0) as ALCint;
+        (rate, refresh)
+    }
+
     pub fn new(audio_subsystem: Option<AudioSubsystem>) -> Result<Self, String> {
         if OPENALMANAGER_INSTANCE_EXISTS.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return Err("Only one OpenALManager can exist at a time!".to_string());
@@ -737,6 +750,7 @@ impl OpenALManager {
                                 {
                                     let mut state = mixer_for_spec.lock().unwrap();
                                     state.device_rate = spec.freq as f64;
+                                    state.device_samples = spec.samples as usize;
                                     state.out_channels = spec.channels as usize;
                                 }
                                 MixerCallback {
