@@ -301,6 +301,9 @@ impl CFDictionaryHostObject {
         if key_retain_func.to_ptr().is_null() {
             key
         } else {
+            if key.is_null() {
+                log!("CFDictionary key retain callback received a null pointer");
+            }
             // TODO: custom dict allocator
             key_retain_func.call_from_host(env, (nil, key))
         }
@@ -317,6 +320,9 @@ impl CFDictionaryHostObject {
         if value_retain_func.to_ptr().is_null() {
             value
         } else {
+            if value.is_null() {
+                log!("CFDictionary value retain callback received a null pointer");
+            }
             // TODO: custom dict allocator
             value_retain_func.call_from_host(env, (nil, value))
         }

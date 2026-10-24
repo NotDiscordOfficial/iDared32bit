@@ -208,12 +208,51 @@ impl Cpu {
                     .join(" ");
                 echo!("  {line}");
             }
+
+            let mut trace = [touchHLE_MgbaInstructionTrace::default(); 64];
+            let trace_count = self.copy_recent_instruction_trace(&mut trace);
+            echo!("Recent guest register snapshots (last 16 instructions):");
+            for entry in trace[trace_count.saturating_sub(16)..trace_count].iter() {
+                let regs = &entry.regs;
+                echo!(
+                    "  PC {:#010x}: r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={:#010x} lr={:#010x}",
+                    entry.pc,
+                    regs[0],
+                    regs[1],
+                    regs[2],
+                    regs[3],
+                    regs[4],
+                    regs[5],
+                    regs[6],
+                    regs[7],
+                    regs[8],
+                    regs[9],
+                    regs[10],
+                    regs[11],
+                    regs[12],
+                    regs[13],
+                    regs[14],
+                );
+            }
         }
     }
 
     fn copy_recent_instruction_pcs(&self, output: &mut [u32]) -> usize {
         unsafe {
             touchHLE_MgbaWrapper_copy_recent_instruction_pcs(
+                self.mgba_wrapper,
+                output.as_mut_ptr(),
+                output.len(),
+            )
+        }
+    }
+
+    fn copy_recent_instruction_trace(
+        &self,
+        output: &mut [touchHLE_MgbaInstructionTrace],
+    ) -> usize {
+        unsafe {
+            touchHLE_MgbaWrapper_copy_recent_instruction_trace(
                 self.mgba_wrapper,
                 output.as_mut_ptr(),
                 output.len(),
@@ -416,6 +455,16 @@ mod tests {
             recent_pcs,
             [code_addr, code_addr + 4, code_addr + 8, code_addr + 12]
         );
+
+        let mut recent_trace = [touchHLE_MgbaInstructionTrace::default(); 4];
+        let count = cpu.copy_recent_instruction_trace(&mut recent_trace);
+        assert_eq!(count, 4);
+        assert_eq!(recent_trace[0].pc, code_addr);
+        assert_eq!(recent_trace[0].regs[0], 0);
+        assert_eq!(recent_trace[1].pc, code_addr + 4);
+        assert_eq!(recent_trace[1].regs[0], 42);
+        assert_eq!(recent_trace[2].regs[1], 58);
+        assert_eq!(recent_trace[3].regs[2], 100);
         match state {
             CpuState::Svc(svc) => assert_eq!(svc, 0x123456),
             other => panic!("Expected an SVC halt, got {other:?}"),
