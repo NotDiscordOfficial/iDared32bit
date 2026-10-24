@@ -6020,6 +6020,21 @@ static BOOL g_deallocTrackerDidDealloc = NO;
 int test_NSMethodSignature() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
 
+  NSObject *object = [NSObject new];
+  id instance_sig = [object methodSignatureForSelector:@selector(retain)];
+  id class_sig = [NSObject instanceMethodSignatureForSelector:@selector(retain)];
+  SEL missing_selector = @selector(notImplementedForMethodSignatureTest);
+  if (instance_sig == nil || class_sig == nil ||
+      [instance_sig numberOfArguments] != 2 ||
+      [class_sig numberOfArguments] != 2 ||
+      [object methodSignatureForSelector:missing_selector] != nil ||
+      [NSObject instanceMethodSignatureForSelector:missing_selector] != nil) {
+    [object release];
+    [pool drain];
+    return -1;
+  }
+  [object release];
+
   // "v12@0:4@8" = void return, 3 args: self(@), _cmd(:), one id(@)
   NSMethodSignature *sig =
       [NSMethodSignature signatureWithObjCTypes:"v12@0:4@8"];

@@ -109,8 +109,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (id)instanceMethodSignatureForSelector:(SEL)sel {
-    // TODO: support `host` method signatures
-    let sig = *env.objc.class_get_method_signature(this, sel).unwrap();
+    let Some(sig) = env.objc.class_get_method_signature(this, sel) else {
+        return nil;
+    };
+    let sig = *sig;
     log_dbg!("instanceMethodSignatureForSelector: '{}' -> {:?}", sel.as_str(&env.mem), env.mem.cstr_at_utf8(sig));
     msg_class![env; NSMethodSignature signatureWithObjCTypes:sig]
 }
@@ -282,6 +284,11 @@ forUndefinedKey:(id)key { // NSString*
 
 - (bool)respondsToSelector:(SEL)selector {
     env.objc.object_has_method(&env.mem, this, selector)
+}
+
+- (id)methodSignatureForSelector:(SEL)selector {
+    let class: Class = msg![env; this class];
+    msg_class![env; class instanceMethodSignatureForSelector:selector]
 }
 
 // Return the callable implementation for an instance method.

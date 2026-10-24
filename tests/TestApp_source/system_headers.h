@@ -78,6 +78,7 @@ void (*method_getImplementation(Method m))(void);
 + (instancetype)alloc;
 + (instancetype)new;
 + (BOOL)respondsToSelector:(SEL)selector;
++ (id)instanceMethodSignatureForSelector:(SEL)selector;
 - (instancetype)init;
 - (instancetype)retain;
 - (void)release;
@@ -86,6 +87,7 @@ void (*method_getImplementation(Method m))(void);
 - (NSUInteger)retainCount;
 - (id)performSelector:(SEL)selector;
 - (BOOL)respondsToSelector:(SEL)selector;
+- (id)methodSignatureForSelector:(SEL)selector;
 @end
 
 @interface NSAutoreleasePool : NSObject
