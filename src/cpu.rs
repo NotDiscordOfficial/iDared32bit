@@ -605,7 +605,9 @@ mod tests {
         assert_eq!(cpu.copy_recent_call_trace(&mut calls), 1);
         assert_eq!(calls[0].pc, code_addr + 4);
         assert_eq!(calls[0].regs[0], 7);
-        assert_eq!(calls[0].regs[14], code_addr + 8);
+        // The snapshot is taken before BL executes, so LR still holds its
+        // incoming value.
+        assert_eq!(calls[0].regs[14], 0);
     }
 
     /// An `svc` must halt before the core looks at whatever follows it, even
