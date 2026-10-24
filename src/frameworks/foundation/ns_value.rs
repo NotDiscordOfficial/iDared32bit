@@ -169,12 +169,7 @@ mod objc_type_tests {
 
     #[test]
     fn nsnumber_long_long_retains_values_outside_32_bit_range() {
-        for value in [
-            i64::MIN,
-            i32::MIN as i64 - 1,
-            i32::MAX as i64 + 1,
-            i64::MAX,
-        ] {
+        for value in [i64::MIN, i32::MIN as i64 - 1, i32::MAX as i64 + 1, i64::MAX] {
             let number = NSNumberHostObject::LongLong(value);
             assert_eq!(number.as_long_long(), value);
             assert_eq!(number.as_i128(), value as i128);
