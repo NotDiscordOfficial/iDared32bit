@@ -1044,17 +1044,21 @@ impl Environment {
         let symbolized_call_sites: Vec<_> = call_sites
             .iter()
             .rev()
-            .take(48)
+            .take(128)
             .rev()
             .filter_map(|(pc, target, _)| {
-                self.guest_symbol_for_pc(*pc)
-                    .map(|(name, offset)| (*pc, *target, name.to_owned(), offset))
+                let (name, offset) = self.guest_symbol_for_pc(*pc)?;
+                let target_symbol = self
+                    .guest_symbol_for_pc(*target)
+                    .map(|(name, offset)| format!("{name}+{offset:#x}"))
+                    .unwrap_or_else(|| "unknown".to_owned());
+                Some((*pc, *target, name.to_owned(), offset, target_symbol))
             })
             .collect();
         if !symbolized_call_sites.is_empty() {
-            echo_no_panic!("Recent symbolized guest call sites (last 48 calls):");
-            for (pc, target, name, offset) in symbolized_call_sites {
-                echo_no_panic!("  {pc:#010x} -> {target:#010x}: {name}+{offset:#x}");
+            echo_no_panic!("Recent symbolized guest call sites (last 128 calls):");
+            for (pc, target, name, offset, target_symbol) in symbolized_call_sites {
+                echo_no_panic!("  {pc:#010x} ({name}+{offset:#x}) -> {target:#010x} ({target_symbol})");
             }
         }
         for (tid, thread) in self.threads.iter().enumerate() {

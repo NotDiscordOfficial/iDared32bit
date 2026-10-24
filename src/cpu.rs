@@ -221,8 +221,9 @@ impl Cpu {
                     Self::disassemble_thumb(entry.opcode as u16)
                 };
                 echo!(
-                    "  PC {:#010x}: {} | r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={:#010x} lr={:#010x}",
+                    "  PC {:#010x}: opcode={:#010x} {} | r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={:#010x} lr={:#010x}",
                     entry.pc,
+                    entry.opcode,
                     instruction,
                     regs[0],
                     regs[1],
@@ -245,8 +246,8 @@ impl Cpu {
             let mut calls = [touchHLE_MgbaCallTrace::default(); 128];
             let call_count = self.copy_recent_call_trace(&mut calls);
             if call_count > 0 {
-                echo!("Recent guest call-site register snapshots (last 48 calls):");
-                for call in calls[call_count.saturating_sub(48)..call_count].iter() {
+                echo!("Recent guest call-site register snapshots (last 128 calls):");
+                for call in calls[..call_count].iter() {
                     let regs = &call.regs;
                     echo!(
                         "  PC {:#010x} -> {:#010x}: r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r12={:#010x} sp={:#010x} lr={:#010x}",
