@@ -121,6 +121,7 @@ pub struct State {
     dirent: dirent::State,
     dlfcn: dlfcn::State,
     keymgr: keymgr::State,
+    mach_o: mach_o::State,
     math: math::State,
     posix_io: posix_io::State,
     pub pthread: pthread::State,
