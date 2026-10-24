@@ -6171,6 +6171,30 @@ int test_NSInvocation_invokeWithTarget() {
   return 0;
 }
 
+int test_NSInvocationOperation() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  InvocationTarget *target = [[InvocationTarget new] autorelease];
+  NSObject *value = [[NSObject new] autorelease];
+  SEL selector = NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
+  NSInvocationOperation *operation =
+      [[[NSInvocationOperation alloc] initWithTarget:target
+                                            selector:selector
+                                              object:value] autorelease];
+  if (operation == nil) {
+    [pool drain];
+    return -1;
+  }
+
+  [operation start];
+  if (target->receivedValue != value || ![operation isFinished]) {
+    [pool drain];
+    return -2;
+  }
+
+  [pool drain];
+  return 0;
+}
+
 int test_NSInvocation_retainArguments() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
 
@@ -7251,6 +7275,7 @@ struct {
     FUNC_DEF(test_NSMethodSignature),
     FUNC_DEF(test_NSInvocation),
     FUNC_DEF(test_NSInvocation_invokeWithTarget),
+    FUNC_DEF(test_NSInvocationOperation),
     FUNC_DEF(test_NSInvocation_retainArguments),
     FUNC_DEF(test_NSInvocation_pointer),
     FUNC_DEF(test_Initialize),

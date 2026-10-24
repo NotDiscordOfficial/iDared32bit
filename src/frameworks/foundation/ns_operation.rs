@@ -11,7 +11,7 @@ use super::ns_thread::detach_new_thread_inner;
 use super::{NSInteger, NSUInteger};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
-    NSZonePtr,
+    NSZonePtr, SEL,
 };
 use crate::{Environment, ThreadId};
 use std::collections::HashMap;
@@ -33,8 +33,38 @@ struct OperationHostObject {
     priority: NSInteger,
     thread_priority: f64,
     name: id,
+    work: OperationWork,
 }
 impl HostObject for OperationHostObject {}
+
+#[derive(Clone, Copy)]
+enum OperationWork {
+    None,
+    TargetSelector {
+        target: id,
+        selector: SEL,
+        argument: id,
+    },
+    Invocation(id),
+}
+
+fn new_operation(env: &mut Environment, class: crate::objc::Class) -> id {
+    env.objc.alloc_object(
+        class,
+        Box::new(OperationHostObject {
+            cancelled: false,
+            executing: false,
+            finished: false,
+            dependencies: Vec::new(),
+            queue: nil,
+            priority: 0,
+            thread_priority: 0.5,
+            name: nil,
+            work: OperationWork::None,
+        }),
+        &mut env.mem,
+    )
+}
 
 struct OperationQueueHostObject {
     operations: Vec<id>,
@@ -127,6 +157,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         priority: 0,
         thread_priority: 0.5,
         name: nil,
+        work: OperationWork::None,
     }), &mut env.mem)
 }
 - (())main {
@@ -254,12 +285,68 @@ pub const CLASSES: ClassExports = objc_classes! {
     let op = env.objc.borrow_mut::<OperationHostObject>(this);
     let dependencies = std::mem::take(&mut op.dependencies);
     let name = std::mem::replace(&mut op.name, nil);
+    let work = std::mem::replace(&mut op.work, OperationWork::None);
     for dependency in dependencies {
         release(env, dependency);
     }
     release(env, name);
+    match work {
+        OperationWork::None => {}
+        OperationWork::TargetSelector { target, argument, .. } => {
+            release(env, target);
+            release(env, argument);
+        }
+        OperationWork::Invocation(invocation) => release(env, invocation),
+    }
     env.objc.dealloc_object(this, &mut env.mem);
 }
+@end
+
+@implementation NSInvocationOperation: NSOperation
+
++ (id)allocWithZone:(NSZonePtr)_zone {
+    new_operation(env, this)
+}
+
++ (id)invocationOperationWithTarget:(id)target selector:(SEL)selector object:(id)object {
+    let operation: id = msg![env; this alloc];
+    let operation: id = msg![env; operation initWithTarget:target
+                                                  selector:selector
+                                                    object:object];
+    autorelease(env, operation)
+}
+
+- (id)initWithTarget:(id)target selector:(SEL)selector object:(id)object {
+    retain(env, target);
+    retain(env, object);
+    env.objc.borrow_mut::<OperationHostObject>(this).work =
+        OperationWork::TargetSelector { target, selector, argument: object };
+    this
+}
+
+- (id)initWithInvocation:(id)invocation { // NSInvocation *
+    retain(env, invocation);
+    env.objc.borrow_mut::<OperationHostObject>(this).work =
+        OperationWork::Invocation(invocation);
+    this
+}
+
+- (())main {
+    match env.objc.borrow::<OperationHostObject>(this).work {
+        OperationWork::None => {}
+        OperationWork::TargetSelector {
+            target,
+            selector,
+            argument,
+        } => {
+            let _: () = crate::objc::msg_send(env, (target, selector, argument));
+        }
+        OperationWork::Invocation(invocation) => {
+            () = msg![env; invocation invoke];
+        }
+    }
+}
+
 @end
 
 @implementation NSOperationQueue: NSObject

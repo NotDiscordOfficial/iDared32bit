@@ -212,6 +212,16 @@ SEL NSSelectorFromString(NSString *);
 - (void)invokeWithTarget:(id)target;
 @end
 
+@interface NSOperation : NSObject
+- (void)start;
+- (BOOL)isFinished;
+@end
+
+@interface NSInvocationOperation : NSOperation
+- (instancetype)initWithTarget:(id)target selector:(SEL)selector object:(id)object;
+- (instancetype)initWithInvocation:(NSInvocation *)invocation;
+@end
+
 @interface NSNotification : NSObject
 - (NSString *)name;
 - (id)object;
