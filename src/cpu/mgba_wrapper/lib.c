@@ -496,8 +496,7 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
     }
     bool is_call = false;
     if (w->cpu.executionMode == MODE_THUMB) {
-      uint32_t previous =
-          (w->recent_instruction_pcs_next + 511u) % 512u;
+      uint32_t previous = (w->recent_instruction_pcs_next + 511u) % 512u;
       bool has_previous = w->recent_instruction_pcs_count > 0 &&
                           (w->recent_instruction_pcs[previous] & 1u) != 0;
       uint16_t previous_opcode =
@@ -576,8 +575,8 @@ size_t touchHLE_MgbaWrapper_copy_recent_instruction_trace(
 }
 
 size_t touchHLE_MgbaWrapper_copy_recent_call_trace(
-    const struct touchHLE_MgbaWrapper *w,
-    struct touchHLE_MgbaCallTrace *output, size_t capacity) {
+    const struct touchHLE_MgbaWrapper *w, struct touchHLE_MgbaCallTrace *output,
+    size_t capacity) {
   if (!output || capacity == 0) {
     return 0;
   }

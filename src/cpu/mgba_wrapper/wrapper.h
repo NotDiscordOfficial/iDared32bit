@@ -153,8 +153,8 @@ size_t touchHLE_MgbaWrapper_copy_recent_instruction_trace(
     const struct touchHLE_MgbaWrapper *w,
     struct touchHLE_MgbaInstructionTrace *output, size_t capacity);
 size_t touchHLE_MgbaWrapper_copy_recent_call_trace(
-    const struct touchHLE_MgbaWrapper *w,
-    struct touchHLE_MgbaCallTrace *output, size_t capacity);
+    const struct touchHLE_MgbaWrapper *w, struct touchHLE_MgbaCallTrace *output,
+    size_t capacity);
 
 /* src/cpu/mgba_wrapper/vfp.c */
 void touchHLE_vfp_reset(struct touchHLE_Vfp *vfp);
