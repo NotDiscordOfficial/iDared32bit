@@ -44,15 +44,15 @@ impl GuestArg for CFUUIDBytes {
 
     fn from_regs(regs: &[u32]) -> Self {
         let mut bytes = [0u8; 16];
-        for (chunk, word) in bytes.chunks_exact_mut(4).zip(regs.iter()) {
+        for (chunk, word) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(regs.iter()) {
             chunk.copy_from_slice(&word.to_le_bytes());
         }
         Self(bytes)
     }
 
     fn to_regs(self, regs: &mut [u32]) {
-        for (word, chunk) in regs.iter_mut().zip(self.0.chunks_exact(4)) {
-            *word = u32::from_le_bytes(chunk.try_into().unwrap());
+        for (word, chunk) in regs.iter_mut().zip(self.0.as_chunks::<4>().0.iter()) {
+            *word = u32::from_le_bytes(*chunk);
         }
     }
 }
