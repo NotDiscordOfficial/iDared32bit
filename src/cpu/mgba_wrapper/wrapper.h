@@ -11,6 +11,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY 2048u
+
 #include <mgba/internal/arm/arm.h>
 #include <mgba/internal/arm/isa-inlines.h>
 
@@ -112,10 +114,11 @@ struct touchHLE_MgbaWrapper {
 
   /* Bounded guest PC history for crash diagnostics. Entries include the Thumb
    * bit. */
-  uint32_t recent_instruction_pcs[512];
+  uint32_t recent_instruction_pcs[TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY];
   uint32_t recent_instruction_pcs_next;
   uint32_t recent_instruction_pcs_count;
-  struct touchHLE_MgbaInstructionTrace recent_instruction_trace[512];
+  struct touchHLE_MgbaInstructionTrace
+      recent_instruction_trace[TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY];
   /* Bounded call-site history, kept separately so callers survive long guest
    * startup paths in the instruction ring. */
   struct touchHLE_MgbaCallTrace recent_call_trace[128];

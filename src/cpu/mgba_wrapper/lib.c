@@ -497,7 +497,10 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
     bool is_call = false;
     uint32_t call_target = 0;
     if (w->cpu.executionMode == MODE_THUMB) {
-      uint32_t previous = (w->recent_instruction_pcs_next + 511u) % 512u;
+      uint32_t previous =
+          (w->recent_instruction_pcs_next +
+           TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY - 1u) %
+          TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY;
       bool has_previous = w->recent_instruction_pcs_count > 0 &&
                           (w->recent_instruction_pcs[previous] & 1u) != 0;
       uint16_t previous_opcode =
@@ -558,8 +561,10 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
       }
     }
     w->recent_instruction_pcs_next =
-        (w->recent_instruction_pcs_next + 1u) % 512u;
-    if (w->recent_instruction_pcs_count < 512u) {
+        (w->recent_instruction_pcs_next + 1u) %
+        TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY;
+    if (w->recent_instruction_pcs_count <
+        TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY) {
       w->recent_instruction_pcs_count++;
     }
 
@@ -585,9 +590,12 @@ size_t touchHLE_MgbaWrapper_copy_recent_instruction_pcs(
   if (count > capacity) {
     count = capacity;
   }
-  size_t start = (w->recent_instruction_pcs_next + 512u - count) % 512u;
+  size_t start = (w->recent_instruction_pcs_next +
+                  TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY - count) %
+                 TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY;
   for (size_t i = 0; i < count; i++) {
-    output[i] = w->recent_instruction_pcs[(start + i) % 512u];
+    output[i] = w->recent_instruction_pcs[
+        (start + i) % TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY];
   }
   return count;
 }
@@ -603,9 +611,12 @@ size_t touchHLE_MgbaWrapper_copy_recent_instruction_trace(
   if (count > capacity) {
     count = capacity;
   }
-  size_t start = (w->recent_instruction_pcs_next + 512u - count) % 512u;
+  size_t start = (w->recent_instruction_pcs_next +
+                  TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY - count) %
+                 TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY;
   for (size_t i = 0; i < count; i++) {
-    output[i] = w->recent_instruction_trace[(start + i) % 512u];
+    output[i] = w->recent_instruction_trace[
+        (start + i) % TOUCHHLE_MGBA_INSTRUCTION_TRACE_CAPACITY];
   }
   return count;
 }
