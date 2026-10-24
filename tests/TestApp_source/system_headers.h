@@ -86,6 +86,8 @@ void (*method_getImplementation(Method m))(void);
 - (NSUInteger)retainCount;
 - (id)performSelector:(SEL)selector;
 - (BOOL)respondsToSelector:(SEL)selector;
++ (void (*)(void))instanceMethodForSelector:(SEL)selector;
+- (void (*)(void))methodForSelector:(SEL)selector;
 @end
 
 @interface NSAutoreleasePool : NSObject
@@ -97,9 +99,23 @@ void (*method_getImplementation(Method m))(void);
 @interface NSArray<ObjectType> : NSObject
 + (instancetype)array;
 + (instancetype)arrayWithObjects:(ObjectType)firstObj, ...;
+- (instancetype)initWithObjects:(ObjectType)firstObj, ...;
 - (NSUInteger)count;
 - (ObjectType)objectAtIndex:(NSUInteger)index;
 - (BOOL)isEqualToArray:(NSArray *)otherArray;
+@end
+
+@interface NSMutableArray<ObjectType> : NSArray
+- (void)addObject:(id)object;
+- (void)removeObject:(id)object;
+- (void)removeObjectsInArray:(NSArray *)otherArray;
+- (void)removeLastObject;
+@end
+
+@class NSURL;
+@interface NSArray (NSArrayCreation)
++ (id)arrayWithContentsOfFile:(id)path;
++ (id)arrayWithContentsOfURL:(NSURL *)url;
 @end
 
 @interface NSDictionary<KeyType, ObjectType> : NSObject
@@ -108,6 +124,12 @@ void (*method_getImplementation(Method m))(void);
 - (NSUInteger)count;
 - (ObjectType)objectForKey:(KeyType)aKey;
 - (BOOL)isEqualToDictionary:(NSDictionary *)otherDictionary;
++ (id)dictionaryWithContentsOfFile:(id)path;
++ (id)dictionaryWithContentsOfURL:(NSURL *)url;
+- (id)valueForKey:(id)key;
+@end
+
+@interface NSMutableDictionary<KeyType, ObjectType> : NSDictionary
 @end
 
 @interface NSSet<ObjectType> : NSObject
@@ -130,6 +152,7 @@ typedef enum {
                                                (NSStringCompareOptions)options
                                              range:(NSRange)range;
 - (BOOL)isEqualToString:(NSString *)other;
+- (const char *)UTF8String;
 @end
 @interface NSMutableString : NSString
 - (void)deleteCharactersInRange:(NSRange)range;
@@ -139,8 +162,34 @@ typedef enum {
 @end
 
 @interface NSNumber : NSValue
++ (NSNumber *)numberWithInt:(int)value;
 + (NSNumber *)numberWithFloat:(float)value;
 + (NSNumber *)numberWithBool:(bool)value;
+- (int)intValue;
+@end
+
+@interface NSNull : NSObject
++ (NSNull *)null;
+@end
+
+typedef enum {
+  NSKeyValueObservingOptionNew = 1,
+  NSKeyValueObservingOptionOld = 2,
+  NSKeyValueObservingOptionInitial = 4,
+  NSKeyValueObservingOptionPrior = 8,
+} NSKeyValueObservingOptions;
+extern NSString *const NSKeyValueChangeKindKey;
+extern NSString *const NSKeyValueChangeNewKey;
+extern NSString *const NSKeyValueChangeOldKey;
+
+@interface NSObject (NSKeyValueObserving)
+- (void)addObserver:(NSObject *)observer
+         forKeyPath:(NSString *)keyPath
+            options:(NSKeyValueObservingOptions)options
+            context:(void *)context;
+- (void)removeObserver:(NSObject *)observer forKeyPath:(NSString *)keyPath;
+- (void)willChangeValueForKey:(NSString *)key;
+- (void)didChangeValueForKey:(NSString *)key;
 @end
 
 NSString *NSStringFromClass(Class);
@@ -167,6 +216,41 @@ typedef double NSTimeInterval;
 @end
 
 @interface NSURL : NSObject
++ (NSURL *)fileURLWithPath:(NSString *)path;
+- (NSString *)path;
+@end
+
+NSString *NSHomeDirectory(void);
+extern NSString *const NSFileType;
+extern NSString *const NSFileTypeDirectory;
+extern NSString *const NSFileTypeRegular;
+
+@interface NSEnumerator : NSObject
+- (id)nextObject;
+- (NSArray *)allObjects;
+@end
+
+@interface NSDirectoryEnumerator : NSEnumerator
+- (NSDictionary *)fileAttributes;
+- (NSDictionary *)directoryAttributes;
+- (void)skipDescendents;
+- (NSUInteger)level;
+@end
+
+typedef enum {
+  NSDirectoryEnumerationSkipsSubdirectoryDescendants = 1,
+  NSDirectoryEnumerationSkipsPackageDescendants = 2,
+  NSDirectoryEnumerationSkipsHiddenFiles = 4,
+} NSDirectoryEnumerationOptions;
+
+@interface NSFileManager : NSObject
++ (NSFileManager *)defaultManager;
+- (NSDirectoryEnumerator *)enumeratorAtPath:(NSString *)path;
+- (NSDirectoryEnumerator *)enumeratorAtURL:(NSURL *)url
+                includingPropertiesForKeys:(NSArray *)keys
+                                   options:
+                                       (NSDirectoryEnumerationOptions)options
+                              errorHandler:(id)handler;
 @end
 
 @interface NSData : NSObject
