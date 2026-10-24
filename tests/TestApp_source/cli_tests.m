@@ -6022,7 +6022,8 @@ int test_NSMethodSignature() {
 
   NSObject *object = [NSObject new];
   id instance_sig = [object methodSignatureForSelector:@selector(retain)];
-  id class_sig = [NSObject instanceMethodSignatureForSelector:@selector(retain)];
+  id class_sig =
+      [NSObject instanceMethodSignatureForSelector:@selector(retain)];
   SEL missing_selector = @selector(notImplementedForMethodSignatureTest);
   if (instance_sig == nil || class_sig == nil ||
       [instance_sig numberOfArguments] != 2 ||
@@ -7269,5 +7270,4 @@ int TestApp_cli_tests_main(void) {
   }
 
   printf("Passed %d out of %d tests\n", tests_passed, tests_run);
-  return tests_run == tests_passed ? 0 : 1;
-}
+  return tests_run == tests_passed ? 0 : 1
