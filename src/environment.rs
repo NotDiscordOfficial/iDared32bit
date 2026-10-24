@@ -1046,15 +1046,16 @@ impl Environment {
             .rev()
             .take(48)
             .rev()
-            .filter_map(|(pc, _)| {
-                self.guest_symbol_for_pc(*pc)
-                    .map(|(name, offset)| (*pc, name.to_owned(), offset))
+            .filter_map(|(pc, target, _)| {
+                self.guest_symbol_for_pc(*pc).map(|(name, offset)| {
+                    (*pc, *target, name.to_owned(), offset)
+                })
             })
             .collect();
         if !symbolized_call_sites.is_empty() {
             echo_no_panic!("Recent symbolized guest call sites (last 48 calls):");
-            for (pc, name, offset) in symbolized_call_sites {
-                echo_no_panic!("  {pc:#010x}: {name}+{offset:#x}");
+            for (pc, target, name, offset) in symbolized_call_sites {
+                echo_no_panic!("  {pc:#010x} -> {target:#010x}: {name}+{offset:#x}");
             }
         }
         for (tid, thread) in self.threads.iter().enumerate() {

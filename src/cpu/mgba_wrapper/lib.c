@@ -495,6 +495,7 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
       trace->regs[i] = (uint32_t)w->cpu.gprs[i];
     }
     bool is_call = false;
+    uint32_t call_target = 0;
     if (w->cpu.executionMode == MODE_THUMB) {
       uint32_t previous = (w->recent_instruction_pcs_next + 511u) % 512u;
       bool has_previous = w->recent_instruction_pcs_count > 0 &&
@@ -503,18 +504,53 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
           has_previous ? (uint16_t)w->recent_instruction_trace[previous].opcode
                        : 0;
       uint16_t current_opcode = (uint16_t)trace->opcode;
-      is_call = has_previous && (previous_opcode & 0xf800u) == 0xf000u &&
-                ((current_opcode & 0xf800u) == 0xf800u ||
-                 (current_opcode & 0xf800u) == 0xe800u);
+      if ((current_opcode & 0xff87u) == 0x4780u) {
+        uint32_t rm = (current_opcode >> 3) & 0xfu;
+        is_call = true;
+        call_target = trace->regs[rm];
+      } else if (has_previous && (previous_opcode & 0xf800u) == 0xf000u &&
+                 ((current_opcode & 0xf800u) == 0xf800u ||
+                  (current_opcode & 0xf800u) == 0xe800u)) {
+        uint32_t s = (previous_opcode >> 10) & 1u;
+        uint32_t j1 = (current_opcode >> 13) & 1u;
+        uint32_t j2 = (current_opcode >> 11) & 1u;
+        uint32_t i1 = !(j1 ^ s);
+        uint32_t i2 = !(j2 ^ s);
+        uint32_t immediate = (s << 24) | (i1 << 23) | (i2 << 22) |
+                             ((previous_opcode & 0x03ffu) << 12) |
+                             ((current_opcode & 0x07ffu) << 1);
+        int32_t offset = ((int32_t)(immediate << 7)) >> 7;
+        uint32_t base = (w->recent_instruction_pcs[previous] & ~1u) + 4u;
+        bool blx_immediate = (current_opcode & 0xf800u) == 0xe800u;
+        call_target = (blx_immediate ? (base & ~3u) : base) + offset;
+        if (!blx_immediate) {
+          call_target |= 1u;
+        }
+        is_call = true;
+      }
     } else {
       uint32_t opcode = trace->opcode;
-      is_call = (opcode & 0x0f000000u) == 0x0b000000u ||
-                (opcode & 0xfe000000u) == 0xfa000000u;
+      if ((opcode & 0x0ffffff0u) == 0x012fff30u) {
+        uint32_t rm = opcode & 0xfu;
+        is_call = true;
+        call_target = trace->regs[rm];
+      } else if ((opcode & 0x0f000000u) == 0x0b000000u) {
+        int32_t offset = ((int32_t)(opcode << 8)) >> 6;
+        is_call = true;
+        call_target = instruction_pc + 8u + offset;
+      } else if ((opcode & 0xfe000000u) == 0xfa000000u) {
+        uint32_t immediate = ((opcode & 0x00ffffffu) << 2) |
+                             ((opcode >> 23) & 2u);
+        int32_t offset = ((int32_t)(immediate << 6)) >> 6;
+        is_call = true;
+        call_target = ((instruction_pc + 8u + offset) & ~1u) | 1u;
+      }
     }
     if (is_call) {
       struct touchHLE_MgbaCallTrace *call =
           &w->recent_call_trace[w->recent_call_trace_next];
       call->pc = instruction_pc;
+      call->target = call_target;
       memcpy(call->regs, trace->regs, sizeof(call->regs));
       w->recent_call_trace_next = (w->recent_call_trace_next + 1u) % 128u;
       if (w->recent_call_trace_count < 128u) {

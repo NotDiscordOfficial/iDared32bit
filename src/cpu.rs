@@ -249,8 +249,9 @@ impl Cpu {
                 for call in calls[call_count.saturating_sub(48)..call_count].iter() {
                     let regs = &call.regs;
                     echo!(
-                        "  PC {:#010x}: r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r12={:#010x} sp={:#010x} lr={:#010x}",
+                        "  PC {:#010x} -> {:#010x}: r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r12={:#010x} sp={:#010x} lr={:#010x}",
                         call.pc,
+                        call.target,
                         regs[0],
                         regs[1],
                         regs[2],
@@ -294,12 +295,12 @@ impl Cpu {
         }
     }
 
-    pub(crate) fn recent_call_sites(&self) -> Vec<(u32, [u32; 16])> {
+    pub(crate) fn recent_call_sites(&self) -> Vec<(u32, u32, [u32; 16])> {
         let mut calls = [touchHLE_MgbaCallTrace::default(); 128];
         let count = self.copy_recent_call_trace(&mut calls);
         calls[..count]
             .iter()
-            .map(|call| (call.pc, call.regs))
+            .map(|call| (call.pc, call.target, call.regs))
             .collect()
     }
 
@@ -613,10 +614,33 @@ mod tests {
         let mut calls = [touchHLE_MgbaCallTrace::default(); 4];
         assert_eq!(cpu.copy_recent_call_trace(&mut calls), 1);
         assert_eq!(calls[0].pc, code_addr + 4);
+        assert_eq!(calls[0].target, code_addr + 16);
         assert_eq!(calls[0].regs[0], 7);
         // The snapshot is taken before BL executes, so LR still holds its
         // incoming value.
         assert_eq!(calls[0].regs[14], 0);
+    }
+
+    #[test]
+    fn records_thumb_blx_register_target() {
+        let mut mem = Mem::new();
+        let code_addr: VAddr = 0x1000;
+        let instruction: MutPtr<u16> = Ptr::from_bits(code_addr);
+        mem.write(instruction, 0x4780); // blx r0
+        let target_instruction: MutPtr<u32> = Ptr::from_bits(code_addr + 8);
+        mem.write(target_instruction, 0xef123456); // svc #0x123456
+
+        let mut cpu = Cpu::new(None);
+        cpu.branch(GuestFunction::from_addr_and_thumb_flag(code_addr, true));
+        cpu.regs_mut()[0] = code_addr + 8;
+        let mut ticks = 1u64;
+        cpu.run_or_step(&mut mem, Some(&mut ticks));
+
+        let mut calls = [touchHLE_MgbaCallTrace::default(); 4];
+        assert_eq!(cpu.copy_recent_call_trace(&mut calls), 1);
+        assert_eq!(calls[0].pc, code_addr + 1);
+        assert_eq!(calls[0].target, code_addr + 8);
+        assert_eq!(calls[0].regs[0], code_addr + 8);
     }
 
     /// An `svc` must halt before the core looks at whatever follows it, even

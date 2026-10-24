@@ -47,6 +47,7 @@ pub struct touchHLE_MgbaInstructionTrace {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct touchHLE_MgbaCallTrace {
     pub pc: u32,
+    pub target: u32,
     pub regs: [u32; 16],
 }
 
