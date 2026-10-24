@@ -218,7 +218,9 @@ SEL NSSelectorFromString(NSString *);
 @end
 
 @interface NSInvocationOperation : NSOperation
-- (instancetype)initWithTarget:(id)target selector:(SEL)selector object:(id)object;
+- (instancetype)initWithTarget:(id)target
+                      selector:(SEL)selector
+                        object:(id)object;
 - (instancetype)initWithInvocation:(NSInvocation *)invocation;
 @end
 

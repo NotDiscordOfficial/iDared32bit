@@ -6175,7 +6175,8 @@ int test_NSInvocationOperation() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   InvocationTarget *target = [[InvocationTarget new] autorelease];
   NSObject *value = [[NSObject new] autorelease];
-  SEL selector = NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
+  SEL selector =
+      NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
   NSInvocationOperation *operation =
       [[[NSInvocationOperation alloc] initWithTarget:target
                                             selector:selector
