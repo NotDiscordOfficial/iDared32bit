@@ -122,15 +122,24 @@ fn CFShow(env: &mut Environment, obj: CFTypeRef) {
     log!("{}", to_rust_string(env, description));
 }
 
-const CONSTANTS: ConstantExports = &[(
-    "_kCFCoreFoundationVersionNumber",
-    HostConstant::Custom(|env| {
-        let version_number_ptr = env.mem.alloc_and_write(478.26f64); // iPhoneOS 2.1
-        env.mem
-            .alloc_and_write(version_number_ptr)
-            .cast()
-            .cast_const()
-    }),
-)];
+const CONSTANTS: ConstantExports = &[
+    (
+        "_kCFCoreFoundationVersionNumber",
+        HostConstant::Custom(|env| {
+            let version_number_ptr = env.mem.alloc_and_write(478.26f64); // iPhoneOS 2.1
+            env.mem
+                .alloc_and_write(version_number_ptr)
+                .cast()
+                .cast_const()
+        }),
+    ),
+    (
+        "_kCFNull",
+        HostConstant::Custom(|env| {
+            let null: crate::objc::id = crate::msg_class![env; NSNull null];
+            env.mem.alloc_and_write(null).cast_void().cast_const()
+        }),
+    ),
+];
 
 const FUNCTIONS: FunctionExports = &[export_c_func!(CFShow(_))];
