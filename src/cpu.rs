@@ -214,9 +214,15 @@ impl Cpu {
             echo!("Recent guest register snapshots (last 16 instructions):");
             for entry in trace[trace_count.saturating_sub(16)..trace_count].iter() {
                 let regs = &entry.regs;
+                let instruction = if entry.pc & 1 == 0 {
+                    Self::disassemble_arm(entry.opcode).unwrap_or_else(|| "unknown ARM instruction".into())
+                } else {
+                    Self::disassemble_thumb(entry.opcode as u16)
+                };
                 echo!(
-                    "  PC {:#010x}: r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={:#010x} lr={:#010x}",
+                    "  PC {:#010x}: {} | r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={:#010x} lr={:#010x}",
                     entry.pc,
+                    instruction,
                     regs[0],
                     regs[1],
                     regs[2],
@@ -255,6 +261,68 @@ impl Cpu {
                 output.len(),
             )
         }
+    }
+
+    fn disassemble_arm(opcode: u32) -> Option<String> {
+        let cond = opcode >> 28;
+        let cond_suffix = match cond {
+            0x0 => "eq",
+            0x1 => "ne",
+            0x2 => "cs",
+            0x3 => "cc",
+            0x4 => "mi",
+            0x5 => "pl",
+            0x6 => "vs",
+            0x7 => "vc",
+            0x8 => "hi",
+            0x9 => "ls",
+            0xa => "ge",
+            0xb => "lt",
+            0xc => "gt",
+            0xd => "le",
+            0xe => "",
+            _ => return None,
+        };
+        if opcode & 0x0c00_0000 == 0x0400_0000 && opcode & (1 << 25) == 0 {
+            let load = opcode & (1 << 20) != 0;
+            let byte = opcode & (1 << 22) != 0;
+            let pre_index = opcode & (1 << 24) != 0;
+            let add = opcode & (1 << 23) != 0;
+            let writeback = opcode & (1 << 21) != 0;
+            let rn = (opcode >> 16) & 0xf;
+            let rd = (opcode >> 12) & 0xf;
+            let offset = opcode & 0xfff;
+            let sign = if add { "" } else { "-" };
+            let suffix = if byte { "b" } else { "" };
+            let mnemonic = format!("{}{}{}", if load { "ldr" } else { "str" }, suffix, cond_suffix);
+            let operand = if offset == 0 {
+                format!("r{rd}, [r{rn}]")
+            } else {
+                format!("r{rd}, [r{rn}, #{sign}{offset}]")
+            };
+            return Some(if pre_index {
+                format!("{mnemonic} {operand}{}", if writeback { "!" } else { "" })
+            } else {
+                format!("{mnemonic} r{rd}, [r{rn}], #{sign}{offset}")
+            });
+        }
+        None
+    }
+
+    fn disassemble_thumb(opcode: u16) -> String {
+        let op = opcode as u32;
+        if op & 0xf800 == 0x6800 || op & 0xf800 == 0x6000 {
+            let load = op & 0x0800 != 0;
+            let imm5 = (op >> 6) & 0x1f;
+            let rn = (op >> 3) & 7;
+            let rd = op & 7;
+            let offset = imm5 * 4;
+            return format!(
+                "{} r{rd}, [r{rn}, #{offset}]",
+                if load { "ldr" } else { "str" }
+            );
+        }
+        "unknown Thumb instruction".into()
     }
 
     pub fn echo_regs(regs: &[u32; 16]) {
@@ -416,6 +484,14 @@ mod tests {
     /// Sanity check: hand-assembled ARMv6 program runs basic
     /// data-processing instructions and halts on `svc`. Doesn't need a real
     /// Mach-O binary or toolchain, unlike the integration tests.
+    #[test]
+    fn disassembles_arm_load_from_null_plus_eight() {
+        assert_eq!(
+            Cpu::disassemble_arm(0xe591_0008).as_deref(),
+            Some("ldr r0, [r1, #8]")
+        );
+    }
+
     #[test]
     fn runs_basic_arm_program() {
         let mut mem = Mem::new();

@@ -482,6 +482,15 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
     struct touchHLE_MgbaInstructionTrace *trace =
         &w->recent_instruction_trace[w->recent_instruction_pcs_next];
     trace->pc = instruction_pc;
+    const uint8_t *instruction =
+        (const uint8_t *)w->cpu.memory.activeRegion + (instruction_pc & ~1u);
+    if (w->cpu.executionMode == MODE_THUMB) {
+      uint16_t opcode;
+      memcpy(&opcode, instruction, sizeof(opcode));
+      trace->opcode = opcode;
+    } else {
+      memcpy(&trace->opcode, instruction, sizeof(trace->opcode));
+    }
     for (size_t i = 0; i < 16; i++) {
       trace->regs[i] = (uint32_t)w->cpu.gprs[i];
     }

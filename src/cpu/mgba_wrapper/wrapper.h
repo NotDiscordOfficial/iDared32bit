@@ -59,6 +59,7 @@ struct touchHLE_Vfp {
 
 struct touchHLE_MgbaInstructionTrace {
   uint32_t pc;
+  uint32_t opcode;
   uint32_t regs[16];
 };
 
