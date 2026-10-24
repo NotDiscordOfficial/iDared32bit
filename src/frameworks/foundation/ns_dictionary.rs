@@ -270,13 +270,7 @@ impl CFDictionaryHostObject {
     }
     // helpers
     fn remove_all(&mut self, env: &mut Environment) {
-        let entries: Vec<_> = self
-            .superclass
-            .map
-            .values()
-            .flatten()
-            .copied()
-            .collect();
+        let entries: Vec<_> = self.superclass.map.values().flatten().copied().collect();
         for (key, value) in entries {
             self.release_key(env, key);
             self.release_value(env, value);
