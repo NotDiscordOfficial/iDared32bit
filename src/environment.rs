@@ -1047,9 +1047,8 @@ impl Environment {
             .take(48)
             .rev()
             .filter_map(|(pc, target, _)| {
-                self.guest_symbol_for_pc(*pc).map(|(name, offset)| {
-                    (*pc, *target, name.to_owned(), offset)
-                })
+                self.guest_symbol_for_pc(*pc)
+                    .map(|(name, offset)| (*pc, *target, name.to_owned(), offset))
             })
             .collect();
         if !symbolized_call_sites.is_empty() {
