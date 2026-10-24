@@ -23,6 +23,10 @@ jobs:
     name: Format, compile and unit test (Linux)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # SDL2's vendored HIDAPI predates C23 (where false became a keyword).
+    # Force a compatible C language mode without changing emulator sources.
+    env:
+      CFLAGS: -std=gnu11
     steps:
       - uses: actions/checkout@v4
         with:
