@@ -294,6 +294,15 @@ impl Cpu {
         }
     }
 
+    pub(crate) fn recent_call_sites(&self) -> Vec<(u32, [u32; 16])> {
+        let mut calls = [touchHLE_MgbaCallTrace::default(); 128];
+        let count = self.copy_recent_call_trace(&mut calls);
+        calls[..count]
+            .iter()
+            .map(|call| (call.pc, call.regs))
+            .collect()
+    }
+
     fn disassemble_arm(opcode: u32) -> Option<String> {
         let cond = opcode >> 28;
         let cond_suffix = match cond {
