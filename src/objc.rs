@@ -218,10 +218,15 @@ fn method_setImplementation(env: &mut Environment, method: MutPtr<method_t>, new
 
     // Update dispatch as well as the Method handle; modifying only the
     // handle would leave subsequent objc_msgSend calls using the old IMP.
+    // The Method handle resolves to the class that declares this selector.
+    // Update the stored implementation while preserving the upstream method
+    // type encoding (the map now contains Method rather than raw IMP).
     let class_object: &mut ClassHostObject = env.objc.borrow_mut(class);
     class_object
         .methods
-        .insert(selector, IMP::Guest(new_guest_imp));
+        .get_mut(&selector)
+        .expect("Method handle points to a defined selector")
+        .imp = IMP::Guest(new_guest_imp);
     let mut value = env.mem.read(method);
     value.imp = new_guest_imp;
     env.mem.write(method, value);
