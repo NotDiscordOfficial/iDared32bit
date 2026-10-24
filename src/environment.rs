@@ -325,9 +325,7 @@ fn nearest_guest_symbol(symbols: &HashMap<String, u32>, pc: u32) -> Option<(&str
             Some((name.as_str(), distance))
         })
         .min_by(|(name_a, distance_a), (name_b, distance_b)| {
-            distance_a
-                .cmp(distance_b)
-                .then_with(|| name_a.cmp(name_b))
+            distance_a.cmp(distance_b).then_with(|| name_a.cmp(name_b))
         })
 }
 
@@ -2465,11 +2463,14 @@ mod guest_symbol_trace_tests {
     #[test]
     fn nearest_guest_symbol_ignores_future_and_distant_symbols() {
         let symbols = HashMap::from([
-            ("_future".to_string(), 0x2001),
+            ("_future".to_string(), 0x3001),
             ("_distant".to_string(), 0x1000),
         ]);
 
         assert_eq!(nearest_guest_symbol(&symbols, 0x100), None);
-        assert_eq!(nearest_guest_symbol(&symbols, 0x2000), Some(("_distant", 0x1000)));
+        assert_eq!(
+            nearest_guest_symbol(&symbols, 0x2000),
+            Some(("_distant", 0x1000))
+        );
     }
 }
