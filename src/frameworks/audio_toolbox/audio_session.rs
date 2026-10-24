@@ -32,6 +32,7 @@ const kAudioSessionProperty_PreferredHardwareIOBufferDuration: AudioSessionPrope
     fourcc(b"iobd");
 const kAudioSessionProperty_PreferredHardwareSampleRate: AudioSessionPropertyID = fourcc(b"hwsr");
 const kAudioSessionProperty_AudioRoute: AudioSessionPropertyID = fourcc(b"rout");
+const kAudioSessionProperty_OtherMixableAudioShouldDuck: AudioSessionPropertyID = fourcc(b"duck");
 
 const kAudioSessionCategory_SoloAmbientSound: u32 = fourcc(b"solo");
 const kAudioSessionProperty_CurrentHardwareIOBufferDuration: u32 = fourcc(b"chbd");
@@ -42,6 +43,7 @@ pub struct State {
     pub current_hardware_output_number_channels: u32,
     current_hardware_output_volume: f32,
     current_hardware_io_buffer_duration: f32,
+    other_mixable_audio_should_duck: bool,
 }
 impl Default for State {
     fn default() -> Self {
@@ -55,6 +57,8 @@ impl Default for State {
             current_hardware_output_volume: 1.0,
             // Value was checked on both iOS Simulator and iPhone 3GS
             current_hardware_io_buffer_duration: 0.023220,
+            // Mixing with other background audio is not ducked by default.
+            other_mixable_audio_should_duck: false,
         }
     }
 }
@@ -105,6 +109,10 @@ fn AudioSessionGetProperty(
     match in_ID {
         kAudioSessionProperty_OtherAudioIsPlaying => {
             let value: u32 = 0;
+            env.mem.write(out_data.cast(), value);
+        }
+        kAudioSessionProperty_OtherMixableAudioShouldDuck => {
+            let value: u32 = u32::from(state.other_mixable_audio_should_duck);
             env.mem.write(out_data.cast(), value);
         }
         kAudioSessionProperty_AudioCategory => {
@@ -158,6 +166,7 @@ fn AudioSessionSetProperty(
 ) -> OSStatus {
     let required_size: GuestUSize = match in_ID {
         kAudioSessionProperty_AudioCategory => guest_size_of::<u32>(),
+        kAudioSessionProperty_OtherMixableAudioShouldDuck => guest_size_of::<u32>(),
         kAudioSessionProperty_PreferredHardwareIOBufferDuration => guest_size_of::<f32>(),
         kAudioSessionProperty_PreferredHardwareSampleRate => guest_size_of::<f64>(),
         _ => unimplemented!("Unimplemented property ID: {}", debug_fourcc(in_ID)),
@@ -165,6 +174,13 @@ fn AudioSessionSetProperty(
     if in_data_size != required_size {
         log!("Warning: AudioSessionSetProperty() failed");
         return kAudioSessionBadPropertySizeError;
+    }
+    if in_ID == kAudioSessionProperty_OtherMixableAudioShouldDuck {
+        let enabled: u32 = env.mem.read(in_data.cast());
+        env.framework_state
+            .audio_toolbox
+            .audio_session
+            .other_mixable_audio_should_duck = enabled != 0;
     }
     if in_ID == kAudioSessionProperty_PreferredHardwareSampleRate {
         env.framework_state
@@ -235,6 +251,7 @@ fn AudioSessionRemovePropertyListenerWithUserData(
 fn get_audio_session_property_size(in_ID: AudioSessionPropertyID) -> GuestUSize {
     match in_ID {
         kAudioSessionProperty_OtherAudioIsPlaying => guest_size_of::<u32>(),
+        kAudioSessionProperty_OtherMixableAudioShouldDuck => guest_size_of::<u32>(),
         kAudioSessionProperty_AudioCategory => guest_size_of::<u32>(),
         kAudioSessionProperty_CurrentHardwareSampleRate => guest_size_of::<f64>(),
         kAudioSessionProperty_CurrentHardwareOutputNumberChannels => guest_size_of::<u32>(),
@@ -254,3 +271,21 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioSessionAddPropertyListener(_, _, _)),
     export_c_func!(AudioSessionRemovePropertyListenerWithUserData(_, _, _)),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ducking_property_has_bool_size_and_defaults_off() {
+        assert_eq!(
+            kAudioSessionProperty_OtherMixableAudioShouldDuck,
+            fourcc(b"duck")
+        );
+        assert_eq!(
+            get_audio_session_property_size(kAudioSessionProperty_OtherMixableAudioShouldDuck),
+            guest_size_of::<u32>()
+        );
+        assert!(!State::default().other_mixable_audio_should_duck);
+    }
+}

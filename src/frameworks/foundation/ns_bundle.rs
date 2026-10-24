@@ -7,6 +7,7 @@
 
 use super::{ns_string, NSNotFound, NSRange, NSUInteger};
 use crate::bundle::Bundle;
+use crate::fs::GuestPath;
 use crate::frameworks::core_foundation::cf_bundle::{
     CFBundleCopyBundleLocalizations, CFBundleCopyPreferredLocalizationsFromArray,
 };
@@ -65,6 +66,54 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation NSBundle: NSObject
 
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let host_object = NSBundleHostObject {
+        bundle: None,
+        bundle_path: nil,
+        bundle_identifier: nil,
+        bundle_url: None,
+        info_dictionary: None,
+    };
+    env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
+}
+
++ (id)bundleWithPath:(id)path {
+    if path == nil {
+        return nil;
+    }
+    let path_string = to_rust_string(env, path);
+    if path_string == env.bundle.bundle_path().as_str() {
+        return msg![env; this mainBundle];
+    }
+    let guest_path = GuestPath::new(&path_string);
+    if !env.fs.exists(guest_path) || env.fs.is_file(guest_path) {
+        return nil;
+    }
+    let bundle: id = msg![env; this alloc];
+    let bundle: id = msg![env; bundle initWithPath:path];
+    autorelease(env, bundle)
+}
+
+- (id)initWithPath:(id)path {
+    if path == nil {
+        release(env, this);
+        return nil;
+    }
+    let path_string = to_rust_string(env, path);
+    let guest_path = GuestPath::new(&path_string);
+    if !env.fs.exists(guest_path) || env.fs.is_file(guest_path) {
+        release(env, this);
+        return nil;
+    }
+    let copied: id = msg![env; path copy];
+    let old = std::mem::replace(
+        &mut env.objc.borrow_mut::<NSBundleHostObject>(this).bundle_path,
+        copied,
+    );
+    release(env, old);
+    this
+}
+
 + (id)mainBundle {
     if let Some(bundle) = env.framework_state.foundation.ns_bundle.main_bundle {
         bundle
@@ -83,8 +132,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())dealloc {
     let &NSBundleHostObject {
         bundle: _,
-        bundle_path: _, // FIXME?
-        bundle_identifier: _, // FIXME?
+        bundle_path,
+        bundle_identifier,
         bundle_url,
         info_dictionary,
     } = env.objc.borrow(this);
@@ -94,6 +143,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     if let Some(info_dictionary) = info_dictionary {
         release(env, info_dictionary);
     }
+    release(env, bundle_identifier);
+    release(env, bundle_path);
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
@@ -101,7 +152,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<NSBundleHostObject>(this).bundle_path
 }
 - (id)bundleIdentifier {
-    env.objc.borrow::<NSBundleHostObject>(this).bundle_identifier
+    let cached = env.objc.borrow::<NSBundleHostObject>(this).bundle_identifier;
+    if cached != nil {
+        return cached;
+    }
+    let info: id = msg![env; this infoDictionary];
+    if info == nil {
+        return nil;
+    }
+    let key: id = ns_string::get_static_str(env, "CFBundleIdentifier");
+    let identifier: id = msg![env; info objectForKey:key];
+    retain(env, identifier);
+    env.objc.borrow_mut::<NSBundleHostObject>(this).bundle_identifier = identifier;
+    identifier
 }
 - (id)bundleURL {
     if let Some(url) = env.objc.borrow::<NSBundleHostObject>(this).bundle_url {
