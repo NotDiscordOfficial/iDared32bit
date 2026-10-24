@@ -196,7 +196,7 @@ impl Cpu {
         let regs = self.regs();
         Self::echo_regs(regs);
 
-        let mut recent_pcs = [0; 64];
+        let mut recent_pcs = [0; 512];
         let count = self.copy_recent_instruction_pcs(&mut recent_pcs);
         if count > 0 {
             echo!("Recent guest instruction PCs (oldest first):");
@@ -209,10 +209,10 @@ impl Cpu {
                 echo!("  {line}");
             }
 
-            let mut trace = [touchHLE_MgbaInstructionTrace::default(); 64];
+            let mut trace = [touchHLE_MgbaInstructionTrace::default(); 512];
             let trace_count = self.copy_recent_instruction_trace(&mut trace);
-            echo!("Recent guest register snapshots (last 16 instructions):");
-            for entry in trace[trace_count.saturating_sub(16)..trace_count].iter() {
+            echo!("Recent guest register snapshots (last 256 instructions):");
+            for entry in trace[trace_count.saturating_sub(256)..trace_count].iter() {
                 let regs = &entry.regs;
                 let instruction = if entry.pc & 1 == 0 {
                     Self::disassemble_arm(entry.opcode)

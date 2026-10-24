@@ -495,8 +495,8 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
       trace->regs[i] = (uint32_t)w->cpu.gprs[i];
     }
     w->recent_instruction_pcs_next =
-        (w->recent_instruction_pcs_next + 1u) % 64u;
-    if (w->recent_instruction_pcs_count < 64u) {
+        (w->recent_instruction_pcs_next + 1u) % 512u;
+    if (w->recent_instruction_pcs_count < 512u) {
       w->recent_instruction_pcs_count++;
     }
 
@@ -522,9 +522,9 @@ size_t touchHLE_MgbaWrapper_copy_recent_instruction_pcs(
   if (count > capacity) {
     count = capacity;
   }
-  size_t start = (w->recent_instruction_pcs_next + 64u - count) % 64u;
+  size_t start = (w->recent_instruction_pcs_next + 512u - count) % 512u;
   for (size_t i = 0; i < count; i++) {
-    output[i] = w->recent_instruction_pcs[(start + i) % 64u];
+    output[i] = w->recent_instruction_pcs[(start + i) % 512u];
   }
   return count;
 }
@@ -540,9 +540,9 @@ size_t touchHLE_MgbaWrapper_copy_recent_instruction_trace(
   if (count > capacity) {
     count = capacity;
   }
-  size_t start = (w->recent_instruction_pcs_next + 64u - count) % 64u;
+  size_t start = (w->recent_instruction_pcs_next + 512u - count) % 512u;
   for (size_t i = 0; i < count; i++) {
-    output[i] = w->recent_instruction_trace[(start + i) % 64u];
+    output[i] = w->recent_instruction_trace[(start + i) % 512u];
   }
   return count;
 }

@@ -106,10 +106,10 @@ struct touchHLE_MgbaWrapper {
 
   /* Bounded guest PC history for crash diagnostics. Entries include the Thumb
    * bit. */
-  uint32_t recent_instruction_pcs[64];
+  uint32_t recent_instruction_pcs[512];
   uint32_t recent_instruction_pcs_next;
   uint32_t recent_instruction_pcs_count;
-  struct touchHLE_MgbaInstructionTrace recent_instruction_trace[64];
+  struct touchHLE_MgbaInstructionTrace recent_instruction_trace[512];
 };
 
 static inline struct touchHLE_MgbaWrapper *wrapper_of(struct ARMCore *cpu) {
