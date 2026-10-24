@@ -474,7 +474,7 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
    * that a halt is noticed immediately instead of at the next event. */
   while (executed < budget && !w->halted) {
     uint32_t instruction_pc = (uint32_t)w->cpu.gprs[ARM_PC] -
-                              (w->cpu.executionMode == MODE_THUMB ? 4u : 8u);
+                              (w->cpu.executionMode == MODE_THUMB ? 2u : 4u);
     if (w->cpu.executionMode == MODE_THUMB) {
       instruction_pc |= 1u;
     }
