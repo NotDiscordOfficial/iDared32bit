@@ -21,7 +21,7 @@ use crate::frameworks::foundation::ns_dictionary::{
 };
 use crate::frameworks::foundation::NSUInteger;
 use crate::mem::{ConstPtr, ConstVoidPtr, Mem, MutVoidPtr};
-use crate::objc::{id, msg, msg_class, nil};
+use crate::objc::{id, msg, msg_class};
 use crate::Environment;
 
 pub type CFDictionaryRef = super::CFTypeRef;

@@ -23,7 +23,7 @@ use crate::frameworks::foundation::ns_keyed_archiver::{
     encode_object, get_value_to_encode_for_current_key,
 };
 use crate::fs::GuestPath;
-use crate::mem::{ConstPtr, MutPtr, Ptr, SafeRead};
+use crate::mem::{ConstPtr, MutPtr, MutVoidPtr, Ptr, SafeRead};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
     HostObject, NSZonePtr,
