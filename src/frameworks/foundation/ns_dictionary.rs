@@ -45,7 +45,9 @@ pub(super) struct DictionaryHostObject {
     /// The keys are the hash values, the values are a list of key-value pairs
     /// where the keys have the same hash value.
     pub(super) map: HashMap<Hash, Vec<(id, id)>>,
-    pub(super) count: NSUInteger,\n}impl HostObject for DictionaryHostObject {}
+    pub(super) count: NSUInteger,
+}
+impl HostObject for DictionaryHostObject {}
 impl DictionaryHostObject {
     pub(super) fn lookup(&self, env: &mut Environment, key: id) -> id {
         let hash: Hash = msg![env; key hash];
@@ -1030,6 +1032,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setObject:(id)object
          forKey:(id)key {
+    assert!(!key.is_null());
+    let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    host_obj.insert(env, key, object);
+    *env.objc.borrow_mut(this) = host_obj;
+}
+
+- (())removeObjectForKey:(id)key {
     assert!(!key.is_null());
     let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     host_obj.remove(env, key);
