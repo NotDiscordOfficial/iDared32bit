@@ -16,13 +16,40 @@ use crate::frameworks::core_foundation::cf_number::{
 use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_keyed_archiver::get_value_to_encode_for_current_key;
 use crate::frameworks::foundation::NSInteger;
-use crate::mem::{ConstVoidPtr, MutVoidPtr};
+use crate::mem::{ConstPtr, ConstVoidPtr, MutVoidPtr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
     HostObject, NSZonePtr,
 };
 use crate::Environment;
 use std::cmp::Ordering;
+use std::collections::HashMap;
+
+/// Per-emulator cache of stable, NUL-terminated Objective-C type encodings.
+#[derive(Default)]
+pub struct State {
+    objc_type_encodings: HashMap<u8, ConstPtr<u8>>,
+}
+
+/// Return a stable pointer in guest memory; callers must not free it.
+fn cached_objc_type(env: &mut Environment, type_code: u8) -> ConstPtr<u8> {
+    if let Some(&ptr) = env
+        .framework_state
+        .foundation
+        .ns_value
+        .objc_type_encodings
+        .get(&type_code)
+    {
+        return ptr;
+    }
+    let ptr = env.mem.alloc_and_write_cstr(&[type_code]).cast_const();
+    env.framework_state
+        .foundation
+        .ns_value
+        .objc_type_encodings
+        .insert(type_code, ptr);
+    ptr
+}
 
 #[derive(Debug)]
 pub(super) enum NSValueHostObject {
@@ -68,6 +95,22 @@ pub(super) enum NSNumberHostObject {
 impl HostObject for NSNumberHostObject {}
 
 impl NSNumberHostObject {
+    /// Objective-C @encode values on 32-bit iOS. BOOL is a signed char on
+    /// this platform; long/NSInteger share the stored 32-bit Int variant.
+    fn objc_type_encoding(&self) -> u8 {
+        match self {
+            Self::Bool(_) | Self::Char(_) => b'c',
+            Self::UnsignedLongLong(_) => b'Q',
+            Self::UnsignedInt(_) => b'I',
+            Self::Int(_) => b'i',
+            Self::LongLong(_) => b'q',
+            Self::Float(_) => b'f',
+            Self::Double(_) => b'd',
+            Self::Short(_) => b's',
+            Self::UnsignedShort(_) => b'S',
+        }
+    }
+
     fn as_bool(&self) -> bool {
         match self {
             NSNumberHostObject::Bool(x) => *x,
@@ -98,6 +141,30 @@ impl NSNumberHostObject {
     impl_AsValue!(as_unsigned_short, u16);
     impl_AsValue!(as_char, i8);
     impl_AsValue!(as_i128, i128);
+}
+
+#[cfg(test)]
+mod objc_type_tests {
+    use super::*;
+
+    #[test]
+    fn nsnumber_objc_types_match_arm32_encodings() {
+        let samples = [
+            (NSNumberHostObject::Bool(true), b'c'),
+            (NSNumberHostObject::Char(-1), b'c'),
+            (NSNumberHostObject::UnsignedLongLong(1), b'Q'),
+            (NSNumberHostObject::UnsignedInt(1), b'I'),
+            (NSNumberHostObject::Int(-1), b'i'),
+            (NSNumberHostObject::LongLong(-1), b'q'),
+            (NSNumberHostObject::Float(1.0), b'f'),
+            (NSNumberHostObject::Double(1.0), b'd'),
+            (NSNumberHostObject::Short(-1), b's'),
+            (NSNumberHostObject::UnsignedShort(1), b'S'),
+        ];
+        for (number, expected) in samples {
+            assert_eq!(number.objc_type_encoding(), expected);
+        }
+    }
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -376,6 +443,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithChar:(i8)value {
     *env.objc.borrow_mut(this) = NSNumberHostObject::Char(value);
     this
+}
+
+- (ConstPtr<u8>)objCType {
+    let type_code = env
+        .objc
+        .borrow::<NSNumberHostObject>(this)
+        .objc_type_encoding();
+    cached_objc_type(env, type_code)
 }
 
 - (bool)boolValue {
