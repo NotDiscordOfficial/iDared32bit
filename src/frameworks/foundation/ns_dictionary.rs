@@ -439,6 +439,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 // These probably comes from some category related to plists.
 - (id)initWithContentsOfFile:(id)path { // NSString*
     release(env, this);
+    if path == nil {
+        return nil;
+    }
     let path = ns_string::to_rust_string(env, path);
     deserialize_plist_from_file(
         env,
@@ -448,6 +451,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (id)initWithContentsOfURL:(id)url { // NSURL*
     release(env, this);
+    if url == nil {
+        return nil;
+    }
     let path = ns_url::to_rust_path(env, url);
     deserialize_plist_from_file(env, &path, /* array_expected: */ false)
 }
@@ -473,6 +479,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 // TODO
 
 - (id)valueForKey:(id)key { // NSString*
+    if key == nil {
+        return nil;
+    }
     let key_str = to_rust_string(env, key);
     // TODO: strip '@' and call super
     assert!(!key_str.starts_with('@'));
@@ -564,6 +573,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 // These probably comes from some category related to plists.
 - (id)initWithContentsOfFile:(id)path { // NSString*
     release(env, this);
+    if path == nil {
+        return nil;
+    }
     let path = ns_string::to_rust_string(env, path);
     let tmp = deserialize_plist_from_file(
         env,
@@ -581,6 +593,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (id)initWithContentsOfURL:(id)url { // NSURL*
     release(env, this);
+    if url == nil {
+        return nil;
+    }
     let path = ns_url::to_rust_path(env, url);
     let tmp = deserialize_plist_from_file(env, &path, /* array_expected: */ false);
     if tmp == nil {

@@ -99,13 +99,20 @@ impl Font {
             panic!("Couldn't parse bundled font file {path:?}. This probably means the file is corrupt. Try re-downloading it.");
         };
 
+        // Determined by testing multiple scale values manually
+        let scale_factor = if filename.contains("CaveatBrush") {
+            1.35
+        } else {
+            1.125
+        };
+
         Font {
             font,
             // TODO: Make this a lookup based on the actual font
             // iPhone OS's interpretation of font size is slightly different,
             // when substituting Helvetica with our Liberation font.
             // This scale factor has been eyeball'd, it's not exact.
-            scale_factor: 1.125,
+            scale_factor,
         }
     }
 
@@ -118,6 +125,35 @@ impl Font {
             font,
             scale_factor: 1.0, // No scale factor
         }
+    }
+
+    /// Load a font the app bundles, with the names it can be looked up by
+    /// (PostScript, full and family names).
+    pub fn from_app_file(bytes: Vec<u8>) -> Option<(Font, Vec<String>)> {
+        let font = rusttype::Font::try_from_vec(bytes)?;
+        let mut font = Font {
+            font,
+            scale_factor: 1.0,
+        };
+        let face = font.as_face_ref();
+        // rusttype's scale is the height from descent to ascent, but a
+        // font size is the em size.
+        let height = f32::from(face.ascender()) - f32::from(face.descender());
+        let scale_factor = height / f32::from(face.units_per_em());
+        let mut names = Vec::new();
+        for name in face.names() {
+            use owned_ttf_parser::name_id::{FAMILY, FULL_NAME, POST_SCRIPT_NAME};
+            if ![POST_SCRIPT_NAME, FULL_NAME, FAMILY].contains(&name.name_id) {
+                continue;
+            }
+            if let Some(name) = name.to_string() {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        font.scale_factor = scale_factor;
+        Some((font, names))
     }
 
     pub fn mono_regular() -> Font {
@@ -161,6 +197,9 @@ impl Font {
     }
     pub fn sans_bold_ja() -> Font {
         Self::from_resource_file("NotoSansJP-Bold.otf")
+    }
+    pub fn marker_felt() -> Font {
+        Self::from_resource_file("CaveatBrush-Regular.ttf")
     }
 
     pub fn units_per_em(&self) -> u16 {

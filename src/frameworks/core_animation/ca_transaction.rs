@@ -44,6 +44,16 @@ impl ThreadLocalState {
             .or(thread_state.implicit_transaction.as_mut())
     }
 
+    /// The current transaction, starting an implicit one if there's none, as
+    /// using CATransaction outside an explicit transaction does.
+    pub fn current_transaction_mut(env: &mut Environment) -> &mut Transaction {
+        if ThreadLocalState::get_current_transaction(env).is_none() {
+            let transaction = Transaction::new(env);
+            ThreadLocalState::get_mut(env).implicit_transaction = Some(transaction);
+        }
+        ThreadLocalState::get_current_transaction_mut(env).unwrap()
+    }
+
     pub fn add_animation(env: &mut Environment, layer: id, animation: id) {
         let layer_class = msg![env; layer class];
         let ca_layer = env.objc.get_known_class("CALayer", &mut env.mem);
@@ -173,14 +183,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     match &*key_string  {
         kCATransactionAnimationDuration => {
             let value: CFTimeInterval = msg![env; value doubleValue];
-            ThreadLocalState::get_current_transaction_mut(env).unwrap().animation_duration = value;
+            ThreadLocalState::current_transaction_mut(env).animation_duration = value;
         },
         kCATransactionDisableActions => {
             let value: bool = msg![env; value boolValue];
-            ThreadLocalState::get_current_transaction_mut(env).unwrap().disable_actions = value;
+            ThreadLocalState::current_transaction_mut(env).disable_actions = value;
         },
         kCATransactionAnimationTimingFunction => {
-            let transaction = ThreadLocalState::get_current_transaction_mut(env).unwrap();
+            let transaction = ThreadLocalState::current_transaction_mut(env);
             let old_value = std::mem::replace(&mut transaction.animation_timing_function, value);
             retain(env, value);
             release(env, old_value);
@@ -189,7 +199,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             unimplemented!();
         },
         _ => {
-            let transaction = ThreadLocalState::get_current_transaction_mut(env).unwrap();
+            let transaction = ThreadLocalState::current_transaction_mut(env);
             let old_value = transaction.data.insert(key_string.to_string(), value).unwrap_or(nil);
             retain(env, value);
             release(env, old_value);
@@ -200,21 +210,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     let key_string = to_rust_string(env, key);
     let value = match &*key_string {
         kCATransactionAnimationDuration => {
-            let animation_duration = ThreadLocalState::get_current_transaction(env).unwrap().animation_duration;
+            let animation_duration = ThreadLocalState::current_transaction_mut(env).animation_duration;
             msg_class![env; NSNumber numberWithDouble:animation_duration]
         },
         kCATransactionDisableActions => {
-            let disable_actions = ThreadLocalState::get_current_transaction(env).unwrap().disable_actions;
+            let disable_actions = ThreadLocalState::current_transaction_mut(env).disable_actions;
             msg_class![env; NSNumber numberWithBool:disable_actions]
         },
         kCATransactionAnimationTimingFunction => {
-            ThreadLocalState::get_current_transaction(env).unwrap().animation_timing_function
+            ThreadLocalState::current_transaction_mut(env).animation_timing_function
         },
         kCATransactionCompletionBlock => {
             unimplemented!()
         },
         _ => {
-            ThreadLocalState::get_current_transaction(env).unwrap().data.get(&*key_string).cloned().unwrap_or(nil)
+            ThreadLocalState::current_transaction_mut(env).data.get(&*key_string).cloned().unwrap_or(nil)
         }
     };
     log_dbg!("[CATransaction valueForKey:{:?} ({})] => {:?}", key, key_string, value);

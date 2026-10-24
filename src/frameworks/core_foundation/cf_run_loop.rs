@@ -10,7 +10,9 @@
 
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::frameworks::core_foundation::time::CFTimeInterval;
-use crate::frameworks::foundation::ns_run_loop::run_run_loop_single_iteration;
+use crate::frameworks::foundation::ns_run_loop::{
+    run_run_loop, run_run_loop_single_iteration, stop_run_loop,
+};
 use crate::frameworks::foundation::ns_string;
 use crate::objc::{id, msg, msg_class};
 use crate::Environment;
@@ -24,6 +26,20 @@ fn CFRunLoopGetCurrent(env: &mut Environment) -> CFRunLoopRef {
 
 pub fn CFRunLoopGetMain(env: &mut Environment) -> CFRunLoopRef {
     msg_class![env; NSRunLoop mainRunLoop]
+}
+
+fn CFRunLoopRun(env: &mut Environment) {
+    let current_run_loop = CFRunLoopGetCurrent(env);
+    run_run_loop(
+        env,
+        current_run_loop,
+        /* single_iteration: */ false,
+        None,
+    );
+}
+
+fn CFRunLoopStop(env: &mut Environment, run_loop: CFRunLoopRef) {
+    stop_run_loop(env, run_loop);
 }
 
 fn CFRunLoopRunInMode(
@@ -66,5 +82,7 @@ pub const CONSTANTS: ConstantExports = &[
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFRunLoopGetCurrent()),
     export_c_func!(CFRunLoopGetMain()),
+    export_c_func!(CFRunLoopRun()),
+    export_c_func!(CFRunLoopStop(_)),
     export_c_func!(CFRunLoopRunInMode(_, _, _)),
 ];

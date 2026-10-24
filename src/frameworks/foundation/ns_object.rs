@@ -15,15 +15,41 @@
 //! See also: [crate::objc], especially the `objects` module.
 
 use super::ns_string::{from_rust_string, to_rust_string};
-use super::{NSTimeInterval, NSUInteger};
+use super::{ns_key_value_observing, NSTimeInterval, NSUInteger};
+use crate::abi::GuestFunction;
 use crate::frameworks::foundation::ns_run_loop::{add_perform_request, cancel_perform_requests};
 use crate::frameworks::foundation::ns_thread::detach_new_thread_inner;
 use crate::libc::semaphore::{host_destroy_semaphore, sem_wait};
 use crate::mem::MutVoidPtr;
 use crate::objc::{
     autorelease, id, msg, msg_class, msg_send, msg_send_no_type_checking, nil, objc_classes,
-    retain, Class, ClassExports, NSZonePtr, ObjC, TrivialHostObject, IMP, SEL,
+    retain, Class, ClassExports, NSZonePtr, ObjC, TrivialHostObject, SEL, TYPE_BOOL, TYPE_CHAR,
+    TYPE_CHAR_PTR, TYPE_CLASS, TYPE_DOUBLE, TYPE_FLOAT, TYPE_ID, TYPE_INT, TYPE_LONG,
+    TYPE_LONGLONG, TYPE_SEL, TYPE_SHORT, TYPE_UCHAR, TYPE_UINT, TYPE_ULONG, TYPE_ULONGLONG,
+    TYPE_UNDEF, TYPE_USHORT, TYPE_VOID,
 };
+use crate::Environment;
+
+/// The `NSMethodSignature*` of an instance method of `class`, or nil if
+/// there's no such method.
+fn method_signature(env: &mut Environment, class: Class, sel: SEL) -> id {
+    if !env.objc.class_has_method(class, sel) {
+        return nil;
+    }
+    // TODO: support `host` method signatures
+    let Some(&sig) = env.objc.class_get_method_signature(class, sel) else {
+        panic!(
+            "TODO: method signature of host method {}",
+            sel.as_str(&env.mem)
+        );
+    };
+    log_dbg!(
+        "method signature: '{}' -> {:?}",
+        sel.as_str(&env.mem),
+        env.mem.cstr_at_utf8(sig)
+    );
+    msg_class![env; NSMethodSignature signatureWithObjCTypes:sig]
+}
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -66,17 +92,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.class_has_method(this, selector)
 }
 
-// Get the implementation of an instance method, including inherited methods.
-+ (IMP)instanceMethodForSelector:(SEL)selector {
-    crate::objc::method_implementation_for_selector(env, this, selector)
-}
-
-// Get the implementation of a class method through this class's metaclass.
-+ (IMP)methodForSelector:(SEL)selector {
-    let metaclass = ObjC::read_isa(this, &env.mem);
-    crate::objc::method_implementation_for_selector(env, metaclass, selector)
-}
-
 + (())cancelPreviousPerformRequestsWithTarget:(id)target selector:(SEL)selector object:(id)arg {
     let run_loop: id = msg_class![env; NSRunLoop currentRunLoop];
     cancel_perform_requests(env, run_loop, target, selector, arg);
@@ -97,10 +112,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (id)instanceMethodSignatureForSelector:(SEL)sel {
-    // TODO: support `host` method signatures
-    let sig = *env.objc.class_get_method_signature(this, sel).unwrap();
-    log_dbg!("instanceMethodSignatureForSelector: '{}' -> {:?}", sel.as_str(&env.mem), env.mem.cstr_at_utf8(sig));
-    msg_class![env; NSMethodSignature signatureWithObjCTypes:sig]
+    method_signature(env, this, sel)
+}
+
++ (GuestFunction)instanceMethodForSelector:(SEL)selector {
+    ObjC::class_get_method_guest_function(env, this, selector)
+}
+
+// Preserve the fork's class-side methodForSelector: support. Look up the
+// metaclass's methods so callers receive an implementation for a class method.
++ (GuestFunction)methodForSelector:(SEL)selector {
+    let metaclass = ObjC::read_isa(this, &env.mem);
+    ObjC::class_get_method_guest_function(env, metaclass, selector)
 }
 
 + (())initialize {
@@ -133,6 +156,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     log_dbg!("[{:?} dealloc]", this);
+    ns_key_value_observing::forget_object(env, this);
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
@@ -187,28 +211,79 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // TODO: If value is nil, the target ivar/method argument type must be
     // checked. If it's non-object type, invoke setNilValueForKey:
-    assert!(value != nil);
-
-    // TODO: If value is a NSNumber or NSValue, it must be unwrapped
-    let value_class = msg![env; value class];
-    let ns_value_class = env.objc.get_known_class("NSValue", &mut env.mem);
-    assert!(!env.objc.class_is_subclass_of(value_class, ns_value_class));
+    // Object properties and setValue:forUndefinedKey: take nil as it is.
+    let is_ns_value = value != nil && {
+        let value_class = msg![env; value class];
+        let ns_value_class = env.objc.get_known_class("NSValue", &mut env.mem);
+        env.objc.class_is_subclass_of(value_class, ns_value_class)
+    };
 
     // Look for the first accessor named set<Key>: or _set<Key>, in that order.
     // If found, invoke it with the input value (or unwrapped value, as needed)
     // and finish.
-    if let Some(sel) = env.objc.lookup_selector(&format!("set{camel_case_key_string}:")) {
-        if env.objc.class_has_method(class, sel) {
-            () = msg_send(env, (this, sel, value));
-            return;
-        }
-    }
+    if let Some(sel) = env.objc.lookup_selector(&format!("set{camel_case_key_string}:")).filter(|&sel| env.objc.class_has_method(class, sel))
+        .or_else(|| env.objc.lookup_selector(&format!("_set{camel_case_key_string}:"))).filter(|&sel| env.objc.class_has_method(class, sel)
+    ) {
+        if is_ns_value {
+            // If value is a NSValue, it must be unwrapped
+            // Find the selector's first (and only) argument type:
+            let types = env.objc.get_class_method(class, sel).types.clone();
+            let mut type_index = 0;
+            let mut argument_type = None;
+            assert_ne!(types.len(), 0);
+            for character in types.chars() {
+                // TODO: Handle arrays, structs, unions, bitfields, pointers
+                // and other types that span multiple chars
+                if matches!(character, TYPE_ID | TYPE_CLASS | TYPE_SEL | TYPE_CHAR | TYPE_UCHAR | TYPE_SHORT | TYPE_USHORT | TYPE_INT | TYPE_UINT | TYPE_LONG | TYPE_ULONG | TYPE_LONGLONG | TYPE_ULONGLONG | TYPE_FLOAT | TYPE_DOUBLE | TYPE_BOOL | TYPE_VOID | TYPE_CHAR_PTR | TYPE_UNDEF) {
+                    match type_index {
+                        // First type is the return type
+                        0 => assert_eq!(character, TYPE_VOID),
+                        // Second type in methods must be the selector
+                        1 => assert_eq!(character, TYPE_SEL),
+                        // Third type is the method's first argument type
+                        2 => argument_type = Some(character),
+                        // Panic if there's more than one type
+                        _ => panic!(),
+                    }
+                    type_index += 1;
+                }
+            }
 
-    if let Some(sel) = env.objc.lookup_selector(&format!("_set{camel_case_key_string}:")) {
-        if env.objc.class_has_method(class, sel) {
+            match argument_type.unwrap() {
+                TYPE_BOOL => {
+                    let value: bool = msg![env; value boolValue];
+                    () = msg_send(env, (this, sel, value));
+                },
+                TYPE_DOUBLE => {
+                    let value: f64 = msg![env; value doubleValue];
+                    () = msg_send(env, (this, sel, value));
+                },
+                TYPE_FLOAT => {
+                    let value: f32 = msg![env; value floatValue];
+                    () = msg_send(env, (this, sel, value));
+                },
+                TYPE_INT => {
+                    let value: i32 = msg![env; value intValue];
+                    () = msg_send(env, (this, sel, value));
+                },
+                TYPE_LONGLONG => {
+                    let value: i64 = msg![env; value longLongValue];
+                    () = msg_send(env, (this, sel, value));
+                },
+                TYPE_UINT => {
+                    let value: u32 = msg![env; value unsignedIntValue];
+                    () = msg_send(env, (this, sel, value));
+                },
+                TYPE_ULONGLONG => {
+                    let value: u64 = msg![env; value unsignedLongLongValue];
+                    () = msg_send(env, (this, sel, value));
+                },
+                argument_type => unimplemented!("TODO: [(NSObject*){:?} setValue:{:?} forKey:{:?}]: Received an NSValue which must be unwrapped to type {}", this, value, key, argument_type)
+            };
+        } else {
             () = msg_send(env, (this, sel, value));
-            return;
         }
+        return;
     }
 
     // If no simple accessor is found, and if the class method
@@ -220,13 +295,48 @@ pub const CLASSES: ClassExports = objc_classes! {
     let sel = env.objc.lookup_selector("accessInstanceVariablesDirectly").unwrap();
     let accessInstanceVariablesDirectly = msg_send(env, (class, sel));
     if accessInstanceVariablesDirectly {
-        if let Some(ivar_ptr) = env.objc.object_lookup_ivar(&env.mem, this, &format!("_{key_string}"))
+        if let Some((ivar_ptr, ivar_type)) = env.objc.object_lookup_ivar(&env.mem, this, &format!("_{key_string}"))
             .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("_is{camel_case_key_string}")))
             .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("{key_string}")))
             .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("is{camel_case_key_string}"))
         ) {
-            retain(env, value);
-            env.mem.write(ivar_ptr.cast(), value);
+            if is_ns_value {
+                // If value is a NSValue, it must be unwrapped
+                match ivar_type.chars().next().unwrap() {
+                    TYPE_BOOL => {
+                        let value: bool = msg![env; value boolValue];
+                        env.mem.write(ivar_ptr.cast(), value);
+                    },
+                    TYPE_DOUBLE => {
+                        let value: f64 = msg![env; value doubleValue];
+                        env.mem.write(ivar_ptr.cast(), value);
+                    },
+                    TYPE_FLOAT => {
+                        let value: f32 = msg![env; value floatValue];
+                        env.mem.write(ivar_ptr.cast(), value);
+                    },
+                    TYPE_INT => {
+                        let value: i32 = msg![env; value intValue];
+                        env.mem.write(ivar_ptr.cast(), value);
+                    },
+                    TYPE_LONGLONG => {
+                        let value: i64 = msg![env; value longLongValue];
+                        env.mem.write(ivar_ptr.cast(), value);
+                    },
+                    TYPE_UINT => {
+                        let value: u32 = msg![env; value unsignedIntValue];
+                        env.mem.write(ivar_ptr.cast(), value);
+                    },
+                    TYPE_ULONGLONG => {
+                        let value: u64 = msg![env; value unsignedLongLongValue];
+                        env.mem.write(ivar_ptr.cast(), value);
+                    },
+                    _ => unimplemented!("TODO: [(NSObject*){:?} setValue:{:?} forKey:{:?}]: Received an NSValue which must be unwrapped to type {}", this, value, key, ivar_type)
+                };
+            } else {
+                retain(env, value);
+                env.mem.write(ivar_ptr.cast(), value);
+            };
             return;
         }
     }
@@ -252,21 +362,36 @@ forUndefinedKey:(id)key { // NSString*
         env.objc.debug_all_class_ivars_as_strings(class).join(", "));
 }
 
-- (())willChangeValueForKey:(id)_key { // NSString *
-    log_once!("TODO: NSObject willChangeValueForKey:");
+// NSKeyValueObserving
+- (())addObserver:(id)observer
+       forKeyPath:(id)key_path // NSString *
+          options:(NSUInteger)options
+          context:(MutVoidPtr)context {
+    ns_key_value_observing::add_observer(env, this, observer, key_path, options, context);
 }
-- (())didChangeValueForKey:(id)_key { // NSString *
-    log_once!("TODO: NSObject didChangeValueForKey:");
+- (())removeObserver:(id)observer
+          forKeyPath:(id)key_path { // NSString *
+    ns_key_value_observing::remove_observer(env, this, observer, key_path, None);
+}
+- (())removeObserver:(id)observer
+          forKeyPath:(id)key_path // NSString *
+             context:(MutVoidPtr)context {
+    ns_key_value_observing::remove_observer(env, this, observer, key_path, Some(context));
+}
+- (())willChangeValueForKey:(id)key { // NSString *
+    ns_key_value_observing::will_change(env, this, key);
+}
+- (())didChangeValueForKey:(id)key { // NSString *
+    ns_key_value_observing::did_change(env, this, key);
+}
+
+- (id)methodSignatureForSelector:(SEL)sel {
+    let class = ObjC::read_isa(this, &env.mem);
+    method_signature(env, class, sel)
 }
 
 - (bool)respondsToSelector:(SEL)selector {
     env.objc.object_has_method(&env.mem, this, selector)
-}
-
-// Return the callable implementation for an instance method.
-- (IMP)methodForSelector:(SEL)selector {
-    let class = ObjC::read_isa(this, &env.mem);
-    crate::objc::method_implementation_for_selector(env, class, selector)
 }
 
 - (id)performSelector:(SEL)sel {
@@ -301,9 +426,11 @@ forUndefinedKey:(id)key { // NSString*
     log_dbg!("performSelectorOnMainThread:{} withObject:{:?} waitUntilDone:{}", sel.as_str(&env.mem), arg, wait);
     if wait && env.current_thread == 0 {
         if sel.as_str(&env.mem).ends_with(':') {
-            () = msg_send(env, (this, sel, arg));
+            // Like performSelector:withObject:, the method may take a
+            // non-object argument.
+            () = msg_send_no_type_checking(env, (this, sel, arg));
         } else {
-            assert!(arg.is_null());
+            // As on a device, a method without one ignores the argument.
             () = msg_send(env, (this, sel));
         }
         return;
@@ -358,6 +485,11 @@ forUndefinedKey:(id)key { // NSString*
         sem_wait(env, sem);
         host_destroy_semaphore(env, sem);
     }
+}
+
+- (GuestFunction)methodForSelector:(SEL)selector {
+    let isa = ObjC::read_isa(this, &env.mem);
+    ObjC::class_get_method_guest_function(env, isa, selector)
 }
 
 // UINibLoadingAdditions protocol

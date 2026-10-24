@@ -825,10 +825,17 @@ impl GLES for GLES1OnGL2<'_> {
         if self.reject_es2_only_get_param("glGetIntegerv", pname) {
             return;
         }
+
         let (type_, _count) = GET_PARAMS.get_type_info(pname);
-        // TODO: type conversion
-        let allowed_float = type_ == ParamType::Float && pname == gl21::POINT_SIZE_MAX;
+
+        // Float parameters that can be queried as integers.
+        let allowed_float = type_ == ParamType::Float
+            && (pname == gl21::POINT_SIZE_MAX
+                || pname == gl21::MAX_TEXTURE_MAX_ANISOTROPY_EXT
+                || pname == gl21::MAX_TEXTURE_LOD_BIAS_EXT);
+
         assert!(type_ == ParamType::Int || allowed_float);
+
         gl21::GetIntegerv(pname, params);
     }
     unsafe fn GetTexEnviv(&mut self, target: GLenum, pname: GLenum, params: *mut GLint) {

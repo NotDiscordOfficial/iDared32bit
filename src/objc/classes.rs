@@ -10,6 +10,8 @@
 //! Resources:
 //! - [[objc explain]: Classes and metaclasses](http://www.sealiesoftware.com/blog/archive/2009/04/14/objc_explain_Classes_and_metaclasses.html), especially [the PDF diagram](http://www.sealiesoftware.com/blog/class%20diagram.pdf)
 
+use super::methods::Method;
+use super::properties::IVar;
 use super::{
     id, ivar_list_t, method_list_t, method_t, nil, objc_object, AnyHostObject, HostIMP, HostObject,
     ObjC, IMP, SEL,
@@ -38,11 +40,9 @@ pub(super) struct ClassHostObject {
     pub(super) name: String,
     pub(super) is_metaclass: bool,
     pub(super) superclass: Class,
-    pub(super) methods: HashMap<SEL, IMP>,
+    pub(super) methods: HashMap<SEL, Method>,
     pub(super) guest_method_signatures: HashMap<SEL, ConstPtr<u8>>,
-    /// Maps ivar name to a tuple of an offset (as pointer) and an alignment.
-    /// (Alignment is used during ivar reconciliation.)
-    pub(super) ivars: HashMap<String, (ConstPtr<GuestUSize>, u32)>,
+    pub(super) ivars: HashMap<String, IVar>,
     /// Offset into the allocated memory for the object where the ivars of
     /// instances of this class or metaclass (respectively: normal objects or
     /// classes) should live. This is always >= the value in the superclass.
@@ -386,7 +386,13 @@ impl ClassHostObject {
                     // The selector should already have been registered by
                     // [ObjC::register_host_selectors], so we can panic
                     // if it hasn't been.
-                    (objc.selectors[name], IMP::Host(host_imp))
+                    (
+                        objc.selectors[name],
+                        Method {
+                            types: host_imp.types_string(),
+                            imp: IMP::Host(host_imp),
+                        },
+                    )
                 }),
             ),
             guest_method_signatures: HashMap::default(),
@@ -737,24 +743,24 @@ impl ObjC {
 
                 if !ivars.is_empty() {
                     let mut max_alignment: u32 = 1;
-                    for (offset, align) in ivars.values() {
-                        if offset.is_null() {
+                    for ivar in ivars.values() {
+                        if ivar.offset.is_null() {
                             // anonymous bitfield
                             continue;
                         }
-                        max_alignment = max_alignment.max(*align);
+                        max_alignment = max_alignment.max(ivar.alignment);
                     }
 
                     let align_mask = max_alignment - 1;
                     diff = (diff + align_mask) & !align_mask;
 
-                    for (offset, _) in ivars.values_mut() {
-                        if offset.is_null() {
+                    for ivar in ivars.values_mut() {
+                        if ivar.offset.is_null() {
                             // anonymous bitfield
                             continue;
                         }
 
-                        *offset = Ptr::from_bits((*offset).to_bits() + diff);
+                        ivar.offset = Ptr::from_bits((ivar.offset).to_bits() + diff);
                     }
                 }
 
@@ -1005,6 +1011,45 @@ impl ObjC {
         let host_object = self.get_host_object(class).unwrap();
         matches!(host_object.as_any().downcast_ref(), Some(FakeClass { .. }))
     }
+
+    #[allow(unused)]
+    pub fn get_non_metaclass(&mut self, mem: &mut Mem, class: Class) -> Class {
+        let ClassHostObject {
+            name, is_metaclass, ..
+        } = self.borrow(class);
+        if !is_metaclass {
+            return class;
+        }
+        if let Some(nonmeta) = self.metaclass_classes.get(&class) {
+            return *nonmeta;
+        }
+        let nonmeta = self.get_known_class(&name.clone(), mem);
+        self.metaclass_classes.insert(class, nonmeta);
+        nonmeta
+    }
+
+    pub fn get_class_method(&self, class: Class, selector: SEL) -> &Method {
+        let mut class = class;
+        loop {
+            let host_object = self.get_host_object(class).unwrap();
+            if let Some(ClassHostObject {
+                superclass,
+                methods,
+                ..
+            }) = host_object.as_any().downcast_ref()
+            {
+                if let Some(method) = methods.get(&selector) {
+                    return method;
+                } else if *superclass == nil {
+                    panic!();
+                } else {
+                    class = *superclass;
+                }
+            } else {
+                panic!();
+            }
+        }
+    }
 }
 
 pub(super) fn objc_getClass(env: &mut Environment, name: ConstPtr<u8>) -> id {
@@ -1077,19 +1122,21 @@ pub(super) fn class_replaceMethod(
             imp,
             name.as_str(&env.mem)
         );
-        e.insert(imp);
+        let types = env.mem.cstr_at_utf8(types).unwrap().to_owned();
+        e.insert(Method { types, imp });
         guest_method_signatures.insert(name, types_copy);
         return IMP::guest_null();
     }
     env.mem.free(types_copy.cast().cast_mut());
     // TODO: use `method_setImplementation` once implemented
     // Note: encoding types are ignored
-    let existing = methods.insert(name, imp.clone()).unwrap();
+    let method = methods.get_mut(&name).unwrap();
+    let existing = std::mem::replace(&mut method.imp, imp);
     assert!(matches!(existing, IMP::Guest(_))); // TODO
     log_dbg!(
         "class_replaceMethod: existing {:?} replaced with {:?} for method {}",
         existing,
-        imp,
+        method.imp,
         name.as_str(&env.mem)
     );
     existing
@@ -1106,7 +1153,7 @@ pub(super) fn class_getInstanceMethod(
             return Ptr::null();
         }
         let host_object: &ClassHostObject = env.objc.borrow(class);
-        match host_object.methods.get(&name) {
+        match host_object.methods.get(&name).map(|method| &method.imp) {
             Some(IMP::Guest(imp)) => {
                 let types = host_object.guest_method_signatures.get(&name);
                 break (Some(*imp), types.copied().unwrap_or(Ptr::null()));
@@ -1165,9 +1212,9 @@ pub(super) fn class_getMethodImplementation(env: &mut Environment, cls: Class, n
             ..
         } = env.objc.borrow(class);
         if methods.contains_key(&name) {
-            let method = methods.get(&name).unwrap().clone();
-            assert!(matches!(method, IMP::Guest(_))); // TODO
-            return method;
+            let method = methods.get(&name).unwrap();
+            assert!(matches!(method.imp, IMP::Guest(_))); // TODO
+            return method.imp.clone();
         } else if next == nil {
             // TODO: currently this returns NULL for unimplemented host methods
             return IMP::guest_null();

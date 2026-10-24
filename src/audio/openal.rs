@@ -348,11 +348,13 @@ impl Source {
         let dmax = self.max_distance;
         let rolloff = self.rolloff_factor;
 
+        // max() then min() rather than clamp(), which panics if a game sets
+        // the maximum below the minimum: then the maximum wins.
         let g = match model {
             AL_NONE => 1.0,
             AL_INVERSE_DISTANCE | AL_INVERSE_DISTANCE_CLAMPED => {
                 let d = if model == AL_INVERSE_DISTANCE_CLAMPED {
-                    dist.clamp(dref, dmax)
+                    dist.max(dref).min(dmax)
                 } else {
                     dist.max(dref)
                 };
@@ -365,7 +367,7 @@ impl Source {
             }
             AL_LINEAR_DISTANCE | AL_LINEAR_DISTANCE_CLAMPED => {
                 let d = if model == AL_LINEAR_DISTANCE_CLAMPED {
-                    dist.clamp(dref, dmax)
+                    dist.max(dref).min(dmax)
                 } else {
                     dist.min(dmax)
                 };
@@ -378,7 +380,7 @@ impl Source {
             }
             AL_EXPONENT_DISTANCE | AL_EXPONENT_DISTANCE_CLAMPED => {
                 let d = if model == AL_EXPONENT_DISTANCE_CLAMPED {
-                    dist.clamp(dref, dmax)
+                    dist.max(dref).min(dmax)
                 } else {
                     dist.max(1e-6)
                 };
@@ -472,7 +474,7 @@ impl Source {
         }
 
         let mut gain = self.gain * self.distance_gain(model, listener);
-        gain = gain.clamp(self.min_gain, self.max_gain) * listener.gain;
+        gain = gain.max(self.min_gain).min(self.max_gain) * listener.gain;
         if !gain.is_finite() || gain < 0.0 {
             gain = 0.0;
         }

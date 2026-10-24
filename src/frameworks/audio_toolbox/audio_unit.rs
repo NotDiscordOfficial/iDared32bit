@@ -21,11 +21,13 @@ use crate::frameworks::audio_toolbox::audio_queue::{
     is_supported_audio_format, log_if_broken_audio_format,
 };
 use crate::frameworks::carbon_core::{paramErr, OSStatus};
-use crate::frameworks::core_audio_types::AudioStreamBasicDescription;
+use crate::frameworks::core_audio_types::{
+    kAudioTimeStampHostTimeValid, kAudioTimeStampSampleTimeValid, AudioStreamBasicDescription,
+    AudioTimeStamp,
+};
 use crate::frameworks::core_foundation::cf_run_loop::CFRunLoopGetMain;
 use crate::frameworks::foundation::ns_run_loop;
 use crate::mem::{guest_size_of, ConstVoidPtr, MutPtr, MutVoidPtr, SafeRead};
-use crate::objc::nil;
 
 use super::audio_components::{AURenderCallbackStruct, AudioComponentInstance};
 use super::audio_queue::decode_buffer;
@@ -107,7 +109,11 @@ fn AudioUnitSetProperty(
     match in_id {
         kAudioUnitProperty_SetRenderCallback => {
             assert_eq!(in_element, OUTPUT_ELEMENT);
-            assert_eq!(in_scope, kAudioUnitScope_Global);
+            // Apple's docs set it on the input scope, which is the same.
+            assert!(matches!(
+                in_scope,
+                kAudioUnitScope_Global | kAudioUnitScope_Input
+            ));
             assert_eq!(in_data_size, guest_size_of::<AURenderCallbackStruct>());
             let render_callback = env.mem.read(in_data.cast::<AURenderCallbackStruct>());
             host_object.render_callback = Some(render_callback);
@@ -212,8 +218,12 @@ fn AudioUnitGetProperty(
             );
             let stream_format = match in_scope {
                 kAudioUnitScope_Global => host_object.global_stream_format,
-                kAudioUnitScope_Output => host_object.output_stream_format.unwrap(),
-                kAudioUnitScope_Input => host_object.input_stream_format.unwrap(),
+                kAudioUnitScope_Output => host_object
+                    .output_stream_format
+                    .unwrap_or(host_object.global_stream_format),
+                kAudioUnitScope_Input => host_object
+                    .input_stream_format
+                    .unwrap_or(host_object.global_stream_format),
                 _ => unimplemented!(),
             };
             env.mem.write(out_data.cast(), stream_format);
@@ -449,12 +459,20 @@ pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
         input_proc: inputProc,
         input_proc_ref_con: inputProcRefCon,
     } = audio_unit_host_object.render_callback.unwrap();
+    let frames_rendered = audio_unit_host_object.frames_rendered;
+    let host_time = crate::libc::mach::time::mach_absolute_time(env);
+    let time_stamp = env.mem.alloc_and_write(AudioTimeStamp {
+        sample_time: frames_rendered as f64,
+        host_time,
+        flags: kAudioTimeStampSampleTimeValid | kAudioTimeStampHostTimeValid,
+        ..Default::default()
+    });
     let () = inputProc.call_from_host(
         env,
         (
             inputProcRefCon,
             action_flags,
-            nil.cast_void().cast_const(),
+            time_stamp.cast_const(),
             0u32,
             number_frames,
             audio_buffer_list,
@@ -504,6 +522,7 @@ pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
 
     // TODO: Do something with the action flags?
     env.mem.free(action_flags.cast_void());
+    env.mem.free(time_stamp.cast_void());
 
     env.mem.free(buffer1Data.cast_void());
     if let Some(buffer2Data) = buffer2Data {
@@ -519,6 +538,7 @@ pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
     // Reborrow as mutable to update the last render time
 
     audio_unit_host_object.last_render_time = Some(now);
+    audio_unit_host_object.frames_rendered += u64::from(number_frames);
     audio_unit_host_object.is_running_handler = false;
 }
 

@@ -90,6 +90,8 @@ pub struct UIViewHostObject {
     clears_context_before_drawing: bool,
     user_interaction_enabled: bool,
     multiple_touch_enabled: bool,
+    /// Whether `layoutSubviews` should be called before the next frame.
+    needs_layout: bool,
 }
 impl HostObject for UIViewHostObject {}
 impl Default for UIViewHostObject {
@@ -105,6 +107,7 @@ impl Default for UIViewHostObject {
             clears_context_before_drawing: true,
             user_interaction_enabled: true,
             multiple_touch_enabled: false,
+            needs_layout: true,
         }
     }
 }
@@ -127,6 +130,15 @@ pub fn set_view_controller(env: &mut Environment, view: id, controller: id) {
     host_obj.view_controller = controller;
 }
 
+/// Lay out the views in the windows that need it, as UIKit does before
+/// drawing each frame.
+pub fn layout_if_needed(env: &mut Environment) {
+    let windows = env.framework_state.uikit.ui_view.ui_window.windows.clone();
+    for window in windows {
+        () = msg![env; window layoutIfNeeded];
+    }
+}
+
 /// Shared parts of `initWithCoder:` and `initWithFrame:`. These can't call
 /// `init`: the subclass may have overridden `init` and will not expect to be
 /// called here.
@@ -146,6 +158,24 @@ fn init_common(env: &mut Environment, this: id) -> id {
     env.framework_state.uikit.ui_view.views.push(this);
 
     this
+}
+
+/// The selector set for a UIView animation, or else `default` if the
+/// delegate implements it.
+fn animation_selector(
+    env: &mut Environment,
+    delegate: id,
+    key: &'static str,
+    default: &str,
+) -> Option<SEL> {
+    let selector: id = msg_class![env; CATransaction valueForKey:(get_static_str(env, key))];
+    if selector != nil {
+        let selector = to_rust_string(env, selector);
+        return Some(env.objc.lookup_selector(&selector).unwrap());
+    }
+    let selector = env.objc.lookup_selector(default)?;
+    let responds: bool = msg![env; delegate respondsToSelector:selector];
+    responds.then_some(selector)
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -281,16 +311,24 @@ pub const CLASSES: ClassExports = objc_classes! {
                 let context: ConstVoidPtr = ConstVoidPtr::from_bits(context as GuestUSize);
                 () = msg![env; animation_delegate setContext:context];
             }
-            let will_start_selector: id = msg_class![env; CATransaction valueForKey:(get_static_str(env, touchHLE_kCATransactionAnimationWillStartSelector))];
-            if will_start_selector != nil {
-                let will_start_selector = to_rust_string(env, will_start_selector);
-                let will_start_selector = env.objc.lookup_selector(&will_start_selector).unwrap();
+            // Like iPhone OS, use these selectors by default if the delegate
+            // implements them. Old games rely on that.
+            let will_start_selector = animation_selector(
+                env,
+                delegate,
+                touchHLE_kCATransactionAnimationWillStartSelector,
+                "animationWillStart:context:",
+            );
+            if let Some(will_start_selector) = will_start_selector {
                 () = msg![env; animation_delegate setWillStartSelector:will_start_selector];
             }
-            let did_stop_selector: id = msg_class![env; CATransaction valueForKey:(get_static_str(env, touchHLE_kCATransactionAnimationDidStopSelector))];
-            if did_stop_selector != nil {
-                let did_stop_selector = to_rust_string(env, did_stop_selector);
-                let did_stop_selector = env.objc.lookup_selector(&did_stop_selector).unwrap();
+            let did_stop_selector = animation_selector(
+                env,
+                delegate,
+                touchHLE_kCATransactionAnimationDidStopSelector,
+                "animationDidStop:finished:context:",
+            );
+            if let Some(did_stop_selector) = did_stop_selector {
                 () = msg![env; animation_delegate setDidStopSelector:did_stop_selector];
             }
             let total_animation_count = animations.len() as u32;
@@ -370,6 +408,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     let key_ns_string = get_static_str(env, "UIOpaque");
     let opaque: bool = msg![env; coder decodeBoolForKey:key_ns_string];
 
+    let key_ns_string = get_static_str(env, "UIAlpha");
+    let alpha: CGFloat = if msg![env; coder containsValueForKey:key_ns_string] {
+        msg![env; coder decodeFloatForKey:key_ns_string]
+    } else {
+        1.0
+    };
+
     let key_ns_string = get_static_str(env, "UIBackgroundColor");
     let bg_color: id = msg![env; coder decodeObjectForKey:key_ns_string];
 
@@ -404,6 +449,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setCenter:center];
     () = msg![env; this setHidden:hidden];
     () = msg![env; this setOpaque:opaque];
+    () = msg![env; this setAlpha:alpha];
     () = msg![env; this setBackgroundColor:bg_color];
     () = msg![env; this setTag:tag];
     () = msg![env; this setMultipleTouchEnabled:multi_touch_enabled];
@@ -464,8 +510,40 @@ pub const CLASSES: ClassExports = objc_classes! {
     // nothing.
 }
 
+- (())setNeedsLayout {
+    env.objc.borrow_mut::<UIViewHostObject>(this).needs_layout = true;
+}
+
+- (())layoutIfNeeded {
+    let host_obj = env.objc.borrow_mut::<UIViewHostObject>(this);
+    if std::mem::take(&mut host_obj.needs_layout) {
+        () = msg![env; this layoutSubviews];
+    }
+    let subviews = env.objc.borrow::<UIViewHostObject>(this).subviews.clone();
+    // Laying out one could remove another.
+    for &subview in &subviews {
+        retain(env, subview);
+    }
+    for subview in subviews {
+        () = msg![env; subview layoutIfNeeded];
+        release(env, subview);
+    }
+}
+
 - (id)superview {
     env.objc.borrow::<UIViewHostObject>(this).superview
+}
+
+// A view counts as a descendant of itself, as in UIKit.
+- (bool)isDescendantOfView:(id)view {
+    let mut current = this;
+    while current != nil {
+        if current == view {
+            return true;
+        }
+        current = env.objc.borrow::<UIViewHostObject>(current).superview;
+    }
+    false
 }
 
 - (id)window {
@@ -515,6 +593,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         let this_layer = this_obj.layer;
         () = msg![env; this_layer addSublayer:subview_layer];
     }
+    () = msg![env; this setNeedsLayout];
+    () = msg![env; view setNeedsLayout];
 }
 
 - (())insertSubview:(id)view atIndex:(NSInteger)index {
@@ -536,6 +616,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     assert!(index >= 0);
     () = msg![env; this_layer insertSublayer:subview_layer atIndex:(index as u32)];
+    () = msg![env; this setNeedsLayout];
+    () = msg![env; view setNeedsLayout];
 }
 
 - (())insertSubview:(id)view belowSubview:(id)sibling {
@@ -558,6 +640,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     subviews.insert(idx, view);
 
     () = msg![env; this_layer insertSublayer:subview_layer below:sibling_layer];
+    () = msg![env; this setNeedsLayout];
+    () = msg![env; view setNeedsLayout];
 }
 
 - (())bringSubviewToFront:(id)subview {
@@ -641,6 +725,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         clears_context_before_drawing: _,
         user_interaction_enabled: _,
         multiple_touch_enabled: _,
+        needs_layout: _,
     } = std::mem::take(env.objc.borrow_mut(this));
 
     release(env, layer);
@@ -672,6 +757,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; layer setHidden:hidden]
 }
 
+- (bool)isClipsToBounds {
+    false
+}
 - (())setClipsToBounds:(bool)clips {
     todo_objc_setter!(this, clips);
 }
@@ -740,7 +828,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setBounds:(CGRect)bounds {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    msg![env; layer setBounds:bounds]
+    let old: CGRect = msg![env; layer bounds];
+    () = msg![env; layer setBounds:bounds];
+    if old.size != bounds.size {
+        () = msg![env; this setNeedsLayout];
+    }
 }
 - (CGPoint)center {
     // FIXME: what happens if [layer anchorPoint] isn't (0.5, 0.5)?
@@ -757,7 +849,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setFrame:(CGRect)frame {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    msg![env; layer setFrame:frame]
+    let old: CGRect = msg![env; layer frame];
+    () = msg![env; layer setFrame:frame];
+    if old.size != frame.size {
+        () = msg![env; this setNeedsLayout];
+    }
 }
 - (CGAffineTransform)transform {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;

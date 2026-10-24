@@ -200,6 +200,15 @@ impl Bundle {
             .unwrap_or(false)
     }
 
+    /// Font files the app bundles (`UIAppFonts`), relative to the bundle.
+    pub fn app_fonts(&self) -> Vec<&str> {
+        self.plist
+            .get("UIAppFonts")
+            .and_then(|v| v.as_array())
+            .map(|fonts| fonts.iter().filter_map(|v| v.as_string()).collect())
+            .unwrap_or_default()
+    }
+
     fn find_icon(icon_files: &[plist::Value]) -> Option<&plist::Value> {
         ["Icon", "Icon-72"]
             .iter()

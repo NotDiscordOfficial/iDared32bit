@@ -6,8 +6,11 @@
 // Native SwiftUI app picker, shown by src/environment/app_picker/swiftui.rs.
 // The layout matches the picker drawn by src/environment/app_picker.rs.
 
+import Combine
 import CoreImage
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 import UIKit
 
 // MARK: - Entry point
@@ -30,6 +33,14 @@ struct PickerInput: Decodable {
     let apps: [App]
     let error: String?
     let wallpaperPath: String?
+    /// Where the wallpaper goes, and the names Rust looks for there.
+    let wallpaperFolder: String
+    let wallpaperFiles: [String]
+    /// The Games folder, watched for games added while the picker is open.
+    let appsFolder: String
+    /// Kept from before the picker was shown again.
+    let initialPage: Int
+    let initialQuickOptionValues: [Int]?
     let branding: String
     let shortVersionText: String
     let copyright: String
@@ -38,6 +49,43 @@ struct PickerInput: Decodable {
     let quickOptions: [QuickOption]
     /// Why the last game couldn't start, if it couldn't.
     let startError: String?
+}
+
+/// Games opened with "Open in iDared 32bit", waiting for the picker.
+enum OpenedGames {
+    /// Only used on the main thread, where UIKit calls the hook below.
+    nonisolated(unsafe) static var pending: [URL] = []
+    static let notification = Notification.Name("IDaredOpenedGames")
+
+    static func take() -> [URL] {
+        defer { pending = [] }
+        return pending
+    }
+}
+
+/// Called from main() before SDL starts. SDL turns files opened in the app
+/// into drop events, which nothing reads, so this also gives them to the
+/// picker. The app opens them in place, so they aren't put in an Inbox.
+@_cdecl("idared_install_open_in_hook")
+public func idaredInstallOpenInHook() {
+    let selector = NSSelectorFromString("sendDropFileForURL:")
+    for name in ["SDLUIKitSceneDelegate", "SDLUIKitDelegate"] {
+        guard let delegateClass = NSClassFromString(name),
+              let method = class_getInstanceMethod(delegateClass, selector)
+        else {
+            continue
+        }
+        typealias Original = @convention(c) (AnyObject, Selector, NSURL) -> Void
+        let original = unsafeBitCast(method_getImplementation(method), to: Original.self)
+        let replacement: @convention(block) (AnyObject, NSURL) -> Void = { delegate, url in
+            if url.isFileURL {
+                OpenedGames.pending.append(url as URL)
+                NotificationCenter.default.post(name: OpenedGames.notification, object: nil)
+            }
+            original(delegate, selector, url)
+        }
+        method_setImplementation(method, imp_implementationWithBlock(replacement))
+    }
 }
 
 /// Called from Rust. Shows the picker until an app is picked, then returns
@@ -159,12 +207,12 @@ private func addQuestionMark(_ icon: UIImage) -> UIImage {
 final class PickerModel: ObservableObject {
     let input: PickerInput
     let icons: [UIImage]
-    let wallpaper: UIImage?
+    @Published var wallpaper: UIImage?
 
     @Published var safeInsets = UIEdgeInsets.zero
     @Published var page = 0
     @Published var pressedApp: Int?
-    @Published var showingQuickOptions = false
+    @Published var showingSettings = false
     @Published var showingCopyright = false
     @Published var copyrightPage = 0
     @Published var showingStartError: Bool
@@ -172,6 +220,42 @@ final class PickerModel: ObservableObject {
 
     /// The value of each of the quick options.
     @Published var quickOptionValues: [Int]
+
+    @Published var headerColor = HeaderColor.saved {
+        didSet {
+            UserDefaults.standard.set(headerColor.rawValue, forKey: headerColorKey)
+        }
+    }
+
+    @Published var hideHeaderLogo = UserDefaults.standard.bool(forKey: hideHeaderLogoKey) {
+        didSet {
+            UserDefaults.standard.set(hideHeaderLogo, forKey: hideHeaderLogoKey)
+        }
+    }
+
+    @Published var hideIconLabels = UserDefaults.standard.bool(forKey: hideIconLabelsKey) {
+        didSet {
+            UserDefaults.standard.set(hideIconLabels, forKey: hideIconLabelsKey)
+        }
+    }
+
+    /// Whether the footer behind the bottom bar has the header's background.
+    @Published var footerBackground = UserDefaults.standard.bool(forKey: footerBackgroundKey) {
+        didSet {
+            UserDefaults.standard.set(footerBackground, forKey: footerBackgroundKey)
+        }
+    }
+
+    /// The logo is dimmed and black and white on the black header.
+    var blackHeaderShown: Bool {
+        headerColor == .black
+    }
+
+    @Published var headerTextColor = HeaderTextColor.saved {
+        didSet {
+            UserDefaults.standard.set(headerTextColor.rawValue, forKey: headerTextColorKey)
+        }
+    }
 
     /// Set when an app is picked: what's returned to Rust.
     var result: String?
@@ -182,6 +266,243 @@ final class PickerModel: ObservableObject {
         quickOptionValues = input.quickOptions.map(\.defaultValue)
         showingStartError = input.startError != nil
         wallpaper = input.wallpaperPath.flatMap { UIImage(contentsOfFile: $0) }
+        if let values = input.initialQuickOptionValues,
+           values.count == quickOptionValues.count {
+            quickOptionValues = values
+        }
+        page = input.initialPage
+        gamesFolderContents = Self.contents(of: input.appsFolder)
+        looseGames = Self.looseGames(beside: input.appsFolder)
+    }
+
+    /// Saves a photo as the wallpaper, in place of any other wallpaper file.
+    func setWallpaper(_ photo: UIImage) {
+        let image = screenSized(photo)
+        guard let data = image.jpegData(compressionQuality: 0.9) else {
+            return
+        }
+        removeWallpaperFiles()
+        // One of the names in wallpaperFiles.
+        let url = URL(fileURLWithPath: input.wallpaperFolder)
+            .appendingPathComponent("Wallpaper.jpg")
+        do {
+            try data.write(to: url)
+            wallpaper = image
+        } catch {
+            NSLog("Couldn't save the wallpaper: %@", error.localizedDescription)
+        }
+    }
+
+    func removeWallpaper() {
+        removeWallpaperFiles()
+        wallpaper = nil
+    }
+
+    private func removeWallpaperFiles() {
+        let folder = URL(fileURLWithPath: input.wallpaperFolder)
+        for name in input.wallpaperFiles {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+        }
+    }
+
+    /// Photos can be far bigger than the screen, which the wallpaper only
+    /// fills, so shrink them until their short side covers its long side.
+    private func screenSized(_ photo: UIImage) -> UIImage {
+        let screen = UIScreen.main.nativeBounds.size
+        let pixels = CGSize(
+            width: photo.size.width * photo.scale,
+            height: photo.size.height * photo.scale
+        )
+        let factor = max(screen.width, screen.height) / min(pixels.width, pixels.height)
+        guard factor < 1 else {
+            return photo
+        }
+        let size = CGSize(
+            width: (pixels.width * factor).rounded(),
+            height: (pixels.height * factor).rounded()
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            photo.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
+    @Published var showingImporter = false
+    /// Games to import that are already in Games, while asking what to do.
+    @Published var importConflicts: [String] = []
+    @Published var importError: String?
+    private var pendingImport: [(url: URL, move: Bool)] = []
+    /// Security-scoped URLs from the Files picker, accessed until copied.
+    private var accessedURLs: [URL] = []
+
+    private var gamesFolder: URL {
+        URL(fileURLWithPath: input.appsFolder)
+    }
+
+    /// Where iOS puts copies of games shared with the app, e.g. from Mail.
+    private var inboxFolder: URL {
+        gamesFolder.deletingLastPathComponent().appendingPathComponent("Inbox")
+    }
+
+    /// Imports .ipa files and .app folders picked in Files. A picked folder
+    /// that isn't a game imports the games inside it.
+    func importPicked(_ urls: [URL]) {
+        for url in urls where url.startAccessingSecurityScopedResource() {
+            accessedURLs.append(url)
+        }
+        importGames(urls.flatMap(Self.games(in:)).map { (url: $0, move: false) })
+    }
+
+    /// Imports games opened with "Open in iDared 32bit": copies of the
+    /// originals, and anything iOS put in the Inbox, which is moved.
+    func importSharedGames() {
+        // Not while another import is copying games.
+        guard pendingImport.isEmpty else {
+            return
+        }
+        let opened = OpenedGames.take().filter { Self.isGame($0) }
+        for url in opened where url.startAccessingSecurityScopedResource() {
+            accessedURLs.append(url)
+        }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: inboxFolder.path)) ?? []
+        let inbox = names
+            .map { inboxFolder.appendingPathComponent($0) }
+            .filter { Self.isGame($0) }
+        let games = opened.map { (url: $0, move: false) } + inbox.map { (url: $0, move: true) }
+        guard !games.isEmpty else {
+            reloadIfGamesChanged()
+            return
+        }
+        importGames(games)
+    }
+
+    private static func isGame(_ url: URL) -> Bool {
+        ["ipa", "app"].contains(url.pathExtension.lowercased())
+    }
+
+    private static func games(in url: URL) -> [URL] {
+        if isGame(url) {
+            return [url]
+        }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+        return names.map { url.appendingPathComponent($0) }.filter(isGame)
+    }
+
+    private func importGames(_ games: [(url: URL, move: Bool)]) {
+        // A game shared from Games itself is already there.
+        let games = games.filter {
+            $0.url.deletingLastPathComponent().standardizedFileURL.path
+                != gamesFolder.standardizedFileURL.path
+        }
+        guard !games.isEmpty else {
+            stopAccessing()
+            importError = "There were no games (.ipa files or .app folders) to import."
+            return
+        }
+        pendingImport = games
+        let existing = games.map(\.url.lastPathComponent).filter { name in
+            FileManager.default.fileExists(atPath: gamesFolder.appendingPathComponent(name).path)
+        }
+        if existing.isEmpty {
+            finishImport(replacing: false)
+        } else {
+            importConflicts = existing
+        }
+    }
+
+    /// Copies (or moves) the pending games into Games, off the main thread,
+    /// then shows the picker again with them.
+    func finishImport(replacing: Bool) {
+        let games = pendingImport
+        let folder = gamesFolder
+        Task.detached {
+            let manager = FileManager.default
+            var failures: [String] = []
+            try? manager.createDirectory(at: folder, withIntermediateDirectories: true)
+            for (url, move) in games {
+                let destination = folder.appendingPathComponent(url.lastPathComponent)
+                do {
+                    if manager.fileExists(atPath: destination.path) {
+                        guard replacing else {
+                            if move {
+                                try? manager.removeItem(at: url)
+                            }
+                            continue
+                        }
+                        try manager.removeItem(at: destination)
+                    }
+                    if move {
+                        try manager.moveItem(at: url, to: destination)
+                    } else {
+                        try manager.copyItem(at: url, to: destination)
+                    }
+                } catch {
+                    failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                }
+            }
+            // A copy: the loop above is done changing it.
+            await MainActor.run { [failures] in
+                self.pendingImport = []
+                self.stopAccessing()
+                if failures.isEmpty {
+                    self.reloadIfGamesChanged()
+                } else {
+                    self.importError = failures.joined(separator: "\n")
+                }
+            }
+        }
+    }
+
+    func cancelImport() {
+        // Shared games that weren't imported aren't wanted in the Inbox.
+        for (url, move) in pendingImport where move {
+            try? FileManager.default.removeItem(at: url)
+        }
+        pendingImport = []
+        stopAccessing()
+    }
+
+    private func stopAccessing() {
+        for url in accessedURLs {
+            url.stopAccessingSecurityScopedResource()
+        }
+        accessedURLs = []
+    }
+
+    /// What was in the Games folder when the picker was shown.
+    private var gamesFolderContents: [String] = []
+    /// The .ipa files in the main folder then, which Rust moves into Games.
+    private var looseGames: [String] = []
+
+    private static func looseGames(beside gamesFolder: String) -> [String] {
+        let mainFolder = (gamesFolder as NSString).deletingLastPathComponent
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: mainFolder)) ?? []
+        return names.filter { ($0 as NSString).pathExtension.lowercased() == "ipa" }.sorted()
+    }
+
+    /// The names and modification dates of what's in a folder.
+    private static func contents(of folder: String) -> [String] {
+        let manager = FileManager.default
+        let names = (try? manager.contentsOfDirectory(atPath: folder)) ?? []
+        return names.sorted().map { name in
+            let path = (folder as NSString).appendingPathComponent(name)
+            let date = (try? manager.attributesOfItem(atPath: path))?[.modificationDate]
+            return "\(name) \(String(describing: date))"
+        }
+    }
+
+    /// Asks Rust to show the picker again if games were added or removed,
+    /// e.g. in the Files app, keeping the page and options.
+    func reloadIfGamesChanged() {
+        guard result == nil,
+              Self.contents(of: input.appsFolder) != gamesFolderContents
+                  || Self.looseGames(beside: input.appsFolder) != looseGames
+        else {
+            return
+        }
+        let lines = ["reload", String(page)] + quickOptionValues.map(String.init)
+        result = lines.joined(separator: "\n")
     }
 
     /// Rust turns the quick option values into option arguments.
@@ -231,6 +552,65 @@ final class PickerHostingController: UIHostingController<PickerView> {
 
 /// The logo's background colour, so it blends in.
 let headerBlue = Color(red: 0, green: 77 / 255, blue: 215 / 255)
+let logoYellow = Color(red: 253 / 255, green: 224 / 255, blue: 22 / 255)
+
+private let headerColorKey = "AppPickerHeaderColor"
+private let hideHeaderLogoKey = "AppPickerHideHeaderLogo"
+private let hideIconLabelsKey = "AppPickerHideIconLabels"
+private let footerBackgroundKey = "AppPickerFooterBackground"
+private let headerTextColorKey = "AppPickerHeaderTextColor"
+
+/// The header text colors to choose from, for the version, name and About.
+enum HeaderTextColor: String, CaseIterable {
+    case yellow, white, gray, black, purple, orange, teal
+
+    static var saved: HeaderTextColor {
+        UserDefaults.standard.string(forKey: headerTextColorKey)
+            .flatMap(HeaderTextColor.init(rawValue:)) ?? .yellow
+    }
+
+    var color: Color {
+        switch self {
+        case .white: return .white
+        case .gray: return Color(white: 0.65)
+        case .yellow: return logoYellow
+        case .black: return .black
+        case .purple: return HeaderColor.purple.color
+        case .orange: return HeaderColor.orange.color
+        case .teal: return HeaderColor.teal.color
+        }
+    }
+
+    var name: String {
+        rawValue.capitalized
+    }
+}
+
+/// The header colors to choose from.
+enum HeaderColor: String, CaseIterable {
+    case blue, black, purple, pink, green, orange, teal
+
+    static var saved: HeaderColor {
+        UserDefaults.standard.string(forKey: headerColorKey)
+            .flatMap(HeaderColor.init(rawValue:)) ?? .blue
+    }
+
+    var color: Color {
+        switch self {
+        case .blue: return headerBlue
+        case .black: return .black
+        case .purple: return Color(red: 0.42, green: 0.18, blue: 0.75)
+        case .pink: return Color(red: 0.88, green: 0.24, blue: 0.55)
+        case .green: return Color(red: 0.08, green: 0.55, blue: 0.28)
+        case .orange: return Color(red: 0.8, green: 0.33, blue: 0)
+        case .teal: return Color(red: 0, green: 0.55, blue: 0.55)
+        }
+    }
+
+    var name: String {
+        rawValue.capitalized
+    }
+}
 let labelFontSize: CGFloat = 14
 let labelLineHeight: CGFloat = 17
 
@@ -260,14 +640,16 @@ struct PickerLayout {
     /// About two characters wider, used when the neighbouring names leave room.
     let labelMaxWidth: CGFloat
 
-    init(size: CGSize, insets: UIEdgeInsets) {
+    init(size: CGSize, insets: UIEdgeInsets, hideLogo: Bool) {
         self.size = size
         self.insets = insets
         // Phones with a notch or Dynamic Island leave about 10pt below it in
         // their safe area; use that. Older ones only leave room for the
         // status bar.
         let headerTop = insets.top > 40 ? insets.top - 10 : max(insets.top, 8)
-        headerContent = CGRect(x: 0, y: headerTop, width: size.width, height: 72)
+        // Without the logo, it only needs to fit the buttons.
+        let headerHeight: CGFloat = hideLogo ? 62 : 72
+        headerContent = CGRect(x: 0, y: headerTop, width: size.width, height: headerHeight)
         header = CGRect(x: 0, y: 0, width: size.width, height: headerContent.maxY + 6)
 
         // Sized and placed like the iOS 26 tab bar.
@@ -379,8 +761,61 @@ struct PickerView: View {
     var body: some View {
         content
             .statusBarHidden(false)
-            .sheet(isPresented: $model.showingQuickOptions) {
-                QuickOptionsView(model: model)
+            // Back from File Manager (or anywhere else), maybe with games
+            // shared with "Open in iDared 32bit".
+            .onReceive(
+                NotificationCenter.default
+                    .publisher(for: UIApplication.didBecomeActiveNotification)
+            ) { _ in
+                model.importSharedGames()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: OpenedGames.notification)
+            ) { _ in
+                model.importSharedGames()
+            }
+            .onAppear {
+                model.importSharedGames()
+            }
+            .confirmationDialog(
+                importConflictTitle,
+                isPresented: Binding(
+                    get: { !model.importConflicts.isEmpty },
+                    set: { if !$0 { model.importConflicts = [] } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Replace") {
+                    model.importConflicts = []
+                    model.finishImport(replacing: true)
+                }
+                Button("Keep Existing") {
+                    model.importConflicts = []
+                    model.finishImport(replacing: false)
+                }
+                Button("Cancel", role: .cancel) {
+                    model.importConflicts = []
+                    model.cancelImport()
+                }
+            } message: {
+                Text(model.importConflicts.joined(separator: "\n"))
+            }
+            .alert(
+                "Couldn't Import",
+                isPresented: Binding(
+                    get: { model.importError != nil },
+                    set: { if !$0 { model.importError = nil } }
+                )
+            ) {
+                // Show any games that did import.
+                Button("OK", role: .cancel) {
+                    model.reloadIfGamesChanged()
+                }
+            } message: {
+                Text(model.importError ?? "")
+            }
+            .sheet(isPresented: $model.showingSettings) {
+                SettingsView(model: model)
             }
             .alert("The Game Stopped", isPresented: $model.showingStartError) {
                 Button("OK", role: .cancel) {}
@@ -389,27 +824,70 @@ struct PickerView: View {
             }
     }
 
+    private var importConflictTitle: String {
+        model.importConflicts.count == 1
+            ? "This game is already in Games"
+            : "These games are already in Games"
+    }
+
     private var content: some View {
         GeometryReader { geometry in
-            let layout = PickerLayout(size: geometry.size, insets: model.safeInsets)
+            let layout = PickerLayout(
+                size: geometry.size,
+                insets: model.safeInsets,
+                hideLogo: model.hideHeaderLogo
+            )
             ZStack(alignment: .topLeading) {
                 Color.black
                 if let wallpaper = model.wallpaper {
+                    // Below the header, which would hide its top.
+                    let area = CGRect(
+                        x: 0,
+                        y: layout.header.maxY,
+                        width: layout.size.width,
+                        height: layout.size.height - layout.header.maxY
+                    )
                     Image(uiImage: wallpaper)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: layout.size.width, height: layout.size.height)
+                        .frame(width: area.width, height: area.height)
                         .clipped()
                         .opacity(0.8)
+                        .position(x: area.midX, y: area.midY)
+                }
+                if model.footerBackground {
+                    // From the page dots, where the grid ends, to the
+                    // bottom edge. Behind the grid, which draws the dots.
+                    let top = layout.pageControlFrame.minY
+                    model.headerColor.color
+                        .place(CGRect(
+                            x: 0,
+                            y: top,
+                            width: layout.size.width,
+                            height: layout.size.height - top
+                        ))
                 }
                 BrandingLabels(branding: model.input.branding, size: layout.size)
                 if let error = model.input.error {
-                    Text(error)
-                        .font(.system(size: 17))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
-                        .multilineTextAlignment(.center)
-                        .place(layout.gridFrame.insetBy(dx: 10, dy: 10))
+                    VStack(spacing: 20) {
+                        Text(error)
+                            .font(.system(size: 17))
+                            .foregroundColor(.white)
+                            .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
+                            .multilineTextAlignment(.center)
+                        Button {
+                            model.showingImporter = true
+                        } label: {
+                            Label("Import Games", systemImage: "square.and.arrow.down")
+                                .font(.system(size: 17, weight: .semibold))
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
+                                .background(Capsule().fill(Color.white))
+                                .foregroundColor(.black)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .place(layout.gridFrame.insetBy(dx: 10, dy: 10))
                 } else {
                     IconGrid(model: model, layout: layout)
                 }
@@ -422,6 +900,17 @@ struct PickerView: View {
             }
         }
         .ignoresSafeArea()
+        // Here, not beside the Settings sheet: on iOS 16, two presentations
+        // on one view can keep each other from showing.
+        .fileImporter(
+            isPresented: $model.showingImporter,
+            allowedContentTypes: [UTType(filenameExtension: "ipa") ?? .data, .folder],
+            allowsMultipleSelection: true
+        ) { result in
+            if case .success(let urls) = result {
+                model.importPicked(urls)
+            }
+        }
     }
 }
 
@@ -433,30 +922,44 @@ struct Header: View {
         let content = layout.headerContent
         let side: CGFloat = 124
         ZStack(alignment: .topLeading) {
-            headerBlue
+            model.headerColor.color
                 .place(layout.header)
             Text("v" + model.input.shortVersionText)
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(.white)
+                .foregroundColor(model.headerTextColor.color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .place(CGRect(x: 16, y: content.minY, width: 60, height: content.height))
-            // The logo fills the space between the version and the buttons.
-            Image("AppPickerLogo")
-                .resizable()
-                .scaledToFit()
-                .place(CGRect(
-                    x: 80,
-                    y: content.minY + 2,
-                    width: content.maxX - side - 84,
-                    height: content.height - 4
-                ))
+            // The logo, or the name, is centred, clear of the version and
+            // the About button.
+            let logoFrame = CGRect(
+                x: 80,
+                y: content.minY + 2,
+                width: content.maxX - 160,
+                height: content.height - 4
+            )
+            if model.hideHeaderLogo {
+                Text("iDared 32bit")
+                    .font(.system(size: 24, weight: .black))
+                    .fontWidth(.condensed)
+                    .foregroundColor(model.headerTextColor.color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .place(logoFrame)
+            } else {
+                Image("AppPickerLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .grayscale(model.blackHeaderShown ? 1 : 0)
+                    .opacity(model.blackHeaderShown ? 0.65 : 1)
+                    .place(logoFrame)
+            }
             HStack(spacing: 8) {
                 HeaderButton(
                     title: "About",
                     symbol: "info",
-                    color: .white,
+                    color: model.headerTextColor.color,
                     fill: .clear,
                     action: {
                         model.copyrightPage = 0
@@ -506,21 +1009,21 @@ struct HeaderButton: View {
     }
 }
 
-/// File Manager, Quick Options and the website, in one bar like the iOS 26
+/// Import, File Manager and Settings, in one bar like the iOS 26
 /// tab bar. A real toolbar's height is fixed too short for the labels.
 struct ActionBar: View {
     @ObservedObject var model: PickerModel
 
     var body: some View {
         HStack(spacing: 0) {
+            item("square.and.arrow.down.fill", "Import") {
+                model.showingImporter = true
+            }
             item("folder.fill", "File Manager") {
                 model.open(model.input.fileManagerURL)
             }
-            item("gearshape.fill", "Quick Options") {
-                model.showingQuickOptions = true
-            }
-            item("safari.fill", "Website") {
-                model.open(model.input.websiteURL)
+            item("gearshape.fill", "Settings") {
+                model.showingSettings = true
             }
         }
         .padding(.horizontal, 10)
@@ -620,18 +1123,20 @@ struct IconGrid: View {
                     .opacity(model.pressedApp == app ? 0.5 : 1)
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 2)
                     .place(iconFrame)
-                Text(labels[slot].text)
-                    .font(.system(size: labelFontSize, weight: .medium))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.7), radius: 2, y: 1)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .place(CGRect(
-                        x: (iconFrame.midX - labels[slot].width / 2).rounded(),
-                        y: (iconFrame.maxY + 4).rounded(),
-                        width: labels[slot].width,
-                        height: labelLineHeight
-                    ))
+                if !model.hideIconLabels {
+                    Text(labels[slot].text)
+                        .font(.system(size: labelFontSize, weight: .medium))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.7), radius: 2, y: 1)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .place(CGRect(
+                            x: (iconFrame.midX - labels[slot].width / 2).rounded(),
+                            y: (iconFrame.maxY + 4).rounded(),
+                            width: labels[slot].width,
+                            height: labelLineHeight
+                        ))
+                }
             }
             PageControl(model: model, pageCount: pageCount)
                 .place(layout.pageControlFrame)
@@ -692,7 +1197,7 @@ struct IconGrid: View {
 struct PageControl: View {
     @ObservedObject var model: PickerModel
     let pageCount: Int
-    private let dotSpacing: CGFloat = 15
+    private let dotSpacing: CGFloat = 18
 
     var body: some View {
         // Like UIPageControl's hidesForSinglePage: one dot says nothing.
@@ -705,7 +1210,7 @@ struct PageControl: View {
                         let current = i == model.page
                         Circle()
                             .fill(Color.white.opacity(current ? 1 : 0.5))
-                            .frame(width: current ? 7 : 5, height: current ? 7 : 5)
+                            .frame(width: current ? 9 : 7, height: current ? 9 : 7)
                             .position(
                                 x: (startX + CGFloat(i) * dotSpacing).rounded(),
                                 y: (geometry.size.height / 2).rounded()
@@ -766,34 +1271,193 @@ struct ButtonRow: View {
 }
 
 /// A standard iOS settings sheet. The options apply to the next app opened.
-struct QuickOptionsView: View {
+/// Settings: the game options, with Theme Options on its own page.
+struct SettingsView: View {
     @ObservedObject var model: PickerModel
 
     var body: some View {
         NavigationStack {
             Form {
+                // Game options change every launch, so they come first;
+                // themes are set once, so they're a tap away.
                 ForEach(model.input.quickOptions.indices, id: \.self) { i in
                     section(i)
                 }
-            }
-            .navigationTitle("Quick Options")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    // Since iOS 26, Done is a checkmark in a glass circle.
-                    if #available(iOS 26, *) {
-                        Button(role: .confirm) {
-                            model.showingQuickOptions = false
+                Section {
+                    NavigationLink {
+                        page("Theme Options") {
+                            headerColorSection
+                            headerTextColorSection
+                            Section {
+                                Toggle("Footer Background Color", isOn: $model.footerBackground)
+                            } footer: {
+                                Text("Apply the header background color to the footer too.")
+                            }
+                            Section {
+                                Toggle("Hide Header Logo", isOn: $model.hideHeaderLogo)
+                            } footer: {
+                                Text("Shows the name instead, with a shorter header.")
+                            }
+                            wallpaperSection
+                            Section {
+                                Toggle("Hide Icon Label", isOn: $model.hideIconLabels)
+                            } footer: {
+                                Text("Shows the icons without the games' names under them.")
+                            }
                         }
-                    } else {
-                        Button("Done") {
-                            model.showingQuickOptions = false
+                    } label: {
+                        Label("Theme Options", systemImage: "paintpalette")
+                    }
+                    // The same screen as the header's About button, which is
+                    // drawn over the picker, so Settings closes first.
+                    Button {
+                        model.showingSettings = false
+                        model.copyrightPage = 0
+                        model.showingCopyright = true
+                    } label: {
+                        // White text like the row above; only the icon is
+                        // tinted, as a button's whole label would be.
+                        Label {
+                            Text("About/Copyright")
+                                .foregroundColor(.primary)
+                        } icon: {
+                            Image(systemName: "info.circle")
+                        }
+                    }
+                    Button {
+                        model.open(model.input.websiteURL)
+                    } label: {
+                        Label {
+                            Text("iDared 32bit Website")
+                                .foregroundColor(.primary)
+                        } icon: {
+                            Image(systemName: "safari")
                         }
                     }
                 }
             }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { doneButton }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private func page(
+        _ title: String,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        Form(content: content)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { doneButton }
+    }
+
+    private var doneButton: some ToolbarContent {
+        ToolbarItem(placement: .confirmationAction) {
+            // Since iOS 26, Done is a checkmark in a glass circle.
+            if #available(iOS 26, *) {
+                Button(role: .confirm) {
+                    model.showingSettings = false
+                }
+            } else {
+                Button("Done") {
+                    model.showingSettings = false
+                }
+            }
+        }
+    }
+
+    private var headerColorSection: some View {
+        Section {
+            // Seven fit across the narrowest iPhones at this size.
+            HStack(spacing: 10) {
+                ForEach(HeaderColor.allCases, id: \.self) { choice in
+                    swatch(choice.color, choice.name, selected: model.headerColor == choice) {
+                        model.headerColor = choice
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+        } header: {
+            Text("Header Background Color")
+        }
+    }
+
+    private var wallpaperSection: some View {
+        Section {
+            // Only used to hear what was picked.
+            let picked = Binding<PhotosPickerItem?>(
+                get: { nil },
+                set: { item in
+                    if let item {
+                        loadWallpaper(item)
+                    }
+                }
+            )
+            PhotosPicker(selection: picked, matching: .images) {
+                Text("Choose Wallpaper")
+            }
+            if model.wallpaper != nil {
+                Button("Remove Wallpaper", role: .destructive) {
+                    model.removeWallpaper()
+                }
+            }
+        } header: {
+            Text("Wallpaper")
+        } footer: {
+            Text("A photo to show behind the games' icons.")
+        }
+    }
+
+    private func loadWallpaper(_ item: PhotosPickerItem) {
+        Task { @MainActor in
+            guard let data = try? await item.loadTransferable(type: Data.self),
+                  let photo = UIImage(data: data)
+            else {
+                return
+            }
+            model.setWallpaper(photo)
+        }
+    }
+
+    private var headerTextColorSection: some View {
+        Section {
+            HStack(spacing: 10) {
+                ForEach(HeaderTextColor.allCases, id: \.self) { choice in
+                    swatch(choice.color, choice.name, selected: model.headerTextColor == choice) {
+                        model.headerTextColor = choice
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+        } header: {
+            Text("Header Text Color")
+        }
+    }
+
+    private func swatch(
+        _ color: Color,
+        _ name: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Circle()
+                .fill(color)
+                .frame(width: 34, height: 34)
+                .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                .overlay(
+                    Circle()
+                        .stroke(Color.white, lineWidth: 2.5)
+                        .padding(-4)
+                        .opacity(selected ? 1 : 0)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(name)
     }
 
     @ViewBuilder

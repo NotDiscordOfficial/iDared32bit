@@ -9,6 +9,7 @@ use crate::frameworks::core_graphics::CGRect;
 use crate::frameworks::foundation::ns_string::to_rust_string;
 use crate::msg;
 use crate::objc::{id, msg_class, msg_super, nil, objc_classes, release, ClassExports};
+use crate::Environment;
 use std::borrow::Cow;
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -19,19 +20,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithFrame:(CGRect)frame {
     let this: id = msg_super![env; this initWithFrame:frame];
-    // The page is shown in a scroll view, the web view's first subview.
-    // Some games reach it through -subviews to hide its shadows.
-    let bounds: CGRect = msg![env; this bounds];
-    let scroll_view: id = msg_class![env; UIScrollView alloc];
-    let scroll_view: id = msg![env; scroll_view initWithFrame:bounds];
-    () = msg![env; this addSubview:scroll_view];
-    release(env, scroll_view);
+    add_scroll_view(env, this);
     this
 }
 
 // NSCoding implementation
-- (id)initWithCoder:(id)_coder {
-    todo!()
+- (id)initWithCoder:(id)coder {
+    let this: id = msg_super![env; this initWithCoder:coder];
+    add_scroll_view(env, this);
+    this
 }
 
 - (())setScalesPageToFit:(bool)_scales {
@@ -40,6 +37,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setDelegate:(id)_delegate {
     // TODO
 }
+// Pages are never loaded (see loadRequest:), so nothing is ever loading.
+- (bool)isLoading {
+    false
+}
+- (())stopLoading {}
+
 - (())loadRequest:(id)request { // NSURLRequest*
     let url_string = if request != nil {
         let url = msg![env; request URL];
@@ -54,3 +57,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// The page is shown in a scroll view, the web view's first subview.
+/// Some games reach it through -subviews to hide its shadows.
+fn add_scroll_view(env: &mut Environment, web_view: id) {
+    let bounds: CGRect = msg![env; web_view bounds];
+    let scroll_view: id = msg_class![env; UIScrollView alloc];
+    let scroll_view: id = msg![env; scroll_view initWithFrame:bounds];
+    () = msg![env; web_view addSubview:scroll_view];
+    release(env, scroll_view);
+}

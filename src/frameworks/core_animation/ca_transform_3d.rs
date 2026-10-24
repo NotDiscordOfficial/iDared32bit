@@ -7,8 +7,10 @@
 //! part of one is used.
 
 use crate::abi::{impl_GuestRet_for_large_struct, GuestArg};
-use crate::dyld::{export_c_func, FunctionExports};
-use crate::frameworks::core_graphics::cg_affine_transform::CGAffineTransform;
+use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
+use crate::frameworks::core_graphics::cg_affine_transform::{
+    CGAffineTransform, CGAffineTransformIdentity,
+};
 use crate::frameworks::core_graphics::CGFloat;
 use crate::mem::SafeRead;
 use crate::Environment;
@@ -75,6 +77,50 @@ impl CATransform3D {
             ty: m[13],
         }
     }
+
+    /// `a` followed by `b`, like `CATransform3DConcat`.
+    pub fn concat(a: Self, b: Self) -> Self {
+        let (a, b) = (a.m, b.m);
+        let m = std::array::from_fn(|i| {
+            let (row, col) = (i / 4, i % 4);
+            (0..4).map(|k| a[row * 4 + k] * b[k * 4 + col]).sum()
+        });
+        CATransform3D { m }
+    }
+
+    fn make_scale(sx: CGFloat, sy: CGFloat, sz: CGFloat) -> Self {
+        let mut t = CATransform3D::from(CGAffineTransformIdentity);
+        (t.m[0], t.m[5], t.m[10]) = (sx, sy, sz);
+        t
+    }
+
+    fn make_translation(tx: CGFloat, ty: CGFloat, tz: CGFloat) -> Self {
+        let mut t = CATransform3D::from(CGAffineTransformIdentity);
+        (t.m[12], t.m[13], t.m[14]) = (tx, ty, tz);
+        t
+    }
+
+    fn make_rotation(angle: CGFloat, x: CGFloat, y: CGFloat, z: CGFloat) -> Self {
+        let len = (x * x + y * y + z * z).sqrt();
+        let u = [x / len, y / len, z / len];
+        let (s, c) = angle.sin_cos();
+        let mut t = CATransform3D::from(CGAffineTransformIdentity);
+        for i in 0..3 {
+            for j in 0..3 {
+                let mut value = (1.0 - c) * u[i] * u[j];
+                if i == j {
+                    value += c;
+                } else {
+                    // Sign of the Levi-Civita symbol for (i, j, k).
+                    let k = 3 - i - j;
+                    let sign = if (i + 1) % 3 == j { 1.0 } else { -1.0 };
+                    value += sign * s * u[k];
+                }
+                t.m[i * 4 + j] = value;
+            }
+        }
+        t
+    }
 }
 
 fn CATransform3DMakeAffineTransform(_env: &mut Environment, t: CGAffineTransform) -> CATransform3D {
@@ -89,10 +135,62 @@ fn CATransform3DGetAffineTransform(_env: &mut Environment, t: CATransform3D) -> 
     t.affine_part()
 }
 
+fn CATransform3DMakeScale(
+    _env: &mut Environment,
+    sx: CGFloat,
+    sy: CGFloat,
+    sz: CGFloat,
+) -> CATransform3D {
+    CATransform3D::make_scale(sx, sy, sz)
+}
+
+fn CATransform3DScale(
+    _env: &mut Environment,
+    t: CATransform3D,
+    sx: CGFloat,
+    sy: CGFloat,
+    sz: CGFloat,
+) -> CATransform3D {
+    CATransform3D::concat(CATransform3D::make_scale(sx, sy, sz), t)
+}
+
+fn CATransform3DTranslate(
+    _env: &mut Environment,
+    t: CATransform3D,
+    tx: CGFloat,
+    ty: CGFloat,
+    tz: CGFloat,
+) -> CATransform3D {
+    CATransform3D::concat(CATransform3D::make_translation(tx, ty, tz), t)
+}
+
+fn CATransform3DRotate(
+    _env: &mut Environment,
+    t: CATransform3D,
+    angle: CGFloat,
+    x: CGFloat,
+    y: CGFloat,
+    z: CGFloat,
+) -> CATransform3D {
+    CATransform3D::concat(CATransform3D::make_rotation(angle, x, y, z), t)
+}
+
+pub const CONSTANTS: ConstantExports = &[(
+    "_CATransform3DIdentity",
+    HostConstant::Custom(|env| {
+        let identity = CATransform3D::from(CGAffineTransformIdentity);
+        env.mem.alloc_and_write(identity).cast().cast_const()
+    }),
+)];
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CATransform3DMakeAffineTransform(_)),
     export_c_func!(CATransform3DIsAffine(_)),
     export_c_func!(CATransform3DGetAffineTransform(_)),
+    export_c_func!(CATransform3DMakeScale(_, _, _)),
+    export_c_func!(CATransform3DScale(_, _, _, _)),
+    export_c_func!(CATransform3DTranslate(_, _, _, _)),
+    export_c_func!(CATransform3DRotate(_, _, _, _, _)),
 ];
 
 #[cfg(test)]
@@ -115,5 +213,31 @@ mod tests {
         let mut perspective = transform;
         perspective.m[11] = -0.002;
         assert!(!perspective.is_affine());
+    }
+
+    #[test]
+    fn rotation_matches_affine() {
+        let angle: CGFloat = 0.5;
+        let rotation = CATransform3D::make_rotation(angle, 0.0, 0.0, 2.0);
+        let (s, c) = angle.sin_cos();
+        let affine = CGAffineTransform {
+            a: c,
+            b: s,
+            c: -s,
+            d: c,
+            tx: 0.0,
+            ty: 0.0,
+        };
+        assert!(rotation.is_affine());
+        assert_eq!(rotation.affine_part(), affine);
+    }
+
+    #[test]
+    fn translate_then_scale() {
+        let t = CATransform3D::make_translation(10.0, 20.0, 0.0);
+        let scale = CATransform3D::make_scale(2.0, 3.0, 1.0);
+        let affine = CATransform3D::concat(scale, t).affine_part();
+        assert_eq!((affine.a, affine.d), (2.0, 3.0));
+        assert_eq!((affine.tx, affine.ty), (10.0, 20.0));
     }
 }

@@ -56,14 +56,37 @@ struct AppInfo {
 }
 
 pub fn app_picker(options: Options) -> Result<(PathBuf, Vec<String>), String> {
+    let apps = find_apps(&options);
+
+    #[cfg(target_os = "ios")]
+    if swiftui::is_available() {
+        // The picker asks to be shown again when the Games folder changes,
+        // e.g. after a game is added in the Files app.
+        let (mut apps, mut state) = (apps, None);
+        loop {
+            match swiftui::app_picker(apps, state)? {
+                swiftui::Picked::App(path, args) => return Ok((path, args)),
+                swiftui::Picked::Reload(new_state) => {
+                    state = Some(new_state);
+                    apps = find_apps(&options);
+                }
+            }
+        }
+    }
+    show_app_picker_gui(options, apps)
+}
+
+fn find_apps(options: &Options) -> Result<Vec<AppInfo>, String> {
     let apps_dir = paths::user_data_base_path().join(paths::apps_dir());
 
-    let apps: Result<Vec<AppInfo>, String> = if !apps_dir.is_dir() {
+    if !apps_dir.is_dir() {
         Err(format!(
             "The {} folder couldn't be found.",
             paths::apps_dir()
         ))
     } else {
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        move_loose_ipas(&apps_dir);
         let languages = options.preferred_languages.clone().unwrap_or_else(|| {
             sdl2::locale::get_preferred_locales()
                 .map(|loc| loc.lang)
@@ -92,13 +115,42 @@ pub fn app_picker(options: Options) -> Result<(PathBuf, Vec<String>), String> {
                     Ok(apps)
                 }
             })
-    };
-
-    #[cfg(target_os = "ios")]
-    if swiftui::is_available() {
-        return swiftui::app_picker(apps);
     }
-    show_app_picker_gui(options, apps)
+}
+
+/// Moves .ipa files left in the main folder, e.g. by the Files app, into the
+/// Games folder, where they're looked for.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn move_loose_ipas(apps_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(paths::user_data_base_path()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_ipa = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ipa"));
+        if !is_ipa || !path.is_file() {
+            continue;
+        }
+        let dest = apps_dir.join(entry.file_name());
+        if dest.exists() {
+            log!(
+                "Not moving {} into {}, which already has a file of that name.",
+                path.display(),
+                paths::apps_dir(),
+            );
+            continue;
+        }
+        match std::fs::rename(&path, &dest) {
+            Ok(()) => {
+                log!("Moved {} into {}.", path.display(), paths::apps_dir());
+            }
+            Err(e) => {
+                log!("Warning: Couldn't move {}: {}", path.display(), e);
+            }
+        }
+    }
 }
 
 fn enumerate_apps(
@@ -1650,7 +1702,7 @@ impl QuickOption {
 const QUICK_OPTIONS: &[QuickOption] = &[
     QuickOption {
         label: "Scale hack",
-        footer: "Runs the app at a higher resolution. This may not work with every app.",
+        footer: "Attempt to scale the game to a higher resolution (some may not work).",
         kind: QuickOptionKind::Choice(&[
             ("Default", None),
             ("Off", Some("--scale-hack=1")),
@@ -1662,7 +1714,7 @@ const QUICK_OPTIONS: &[QuickOption] = &[
     },
     QuickOption {
         label: "Orientation",
-        footer: "For apps that are in the wrong orientation.",
+        footer: "For games that are in the wrong orientation.",
         kind: QuickOptionKind::Choice(&[
             ("Default", None),
             ("←", Some("--landscape-left")),
@@ -1673,7 +1725,7 @@ const QUICK_OPTIONS: &[QuickOption] = &[
     },
     QuickOption {
         label: "Network access",
-        footer: "Without this, apps see what an iPhone in airplane mode would.",
+        footer: "Off means games work as if in airplane mode.",
         kind: QuickOptionKind::Switch {
             default: false,
             on: Some("--allow-network-access"),
@@ -1689,6 +1741,16 @@ const QUICK_OPTIONS: &[QuickOption] = &[
             on: None,
             off: Some("--disable-analog-stick-tilt-controls"),
         },
+        desktop_only: false,
+    },
+    QuickOption {
+        label: "Device",
+        footer: "Which version of a game made for both iPhone and iPad to run.",
+        kind: QuickOptionKind::Choice(&[
+            ("Default", None),
+            ("iPhone", Some("--device-family=iphone")),
+            ("iPad", Some("--device-family=ipad")),
+        ]),
         desktop_only: false,
     },
     QuickOption {
@@ -1876,6 +1938,7 @@ mod tests {
         values[1] = 2; // Orientation: landscape right
         values[2] = 1; // Network access: on
         values[3] = 0; // Analog sticks for tilt controls: off
+        values[4] = 2; // Device: iPad
         assert_eq!(
             quick_option_args(&values).collect::<Vec<_>>(),
             [
@@ -1883,6 +1946,7 @@ mod tests {
                 "--landscape-right",
                 "--allow-network-access",
                 "--disable-analog-stick-tilt-controls",
+                "--device-family=ipad",
             ],
         );
     }

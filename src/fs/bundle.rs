@@ -119,6 +119,12 @@ impl BundleData {
             std::fs::File::open(path).map_err(|e| format!("Could not open IPA file: {e}"))?;
         let mut zip =
             ZipArchive::new(file).map_err(|e| format!("Could not open IPA archive: {e}"))?;
+        // A damaged or incomplete file (e.g. an unfinished download) can have
+        // entries that can't be read, so check them all here.
+        for i in 0..zip.len() {
+            zip.by_index(i)
+                .map_err(|e| format!("The IPA file is damaged or incomplete: {e}"))?;
+        }
         let bundle_path = Self::find_bundle_path_in_archive(&mut zip)?;
         Ok(BundleData::Zip { zip, bundle_path })
     }

@@ -7,7 +7,7 @@
 
 use super::mutex::pthread_mutex_t;
 use crate::dyld::FunctionExports;
-use crate::libc::errno::{EINVAL, ETIMEDOUT};
+use crate::libc::errno::{EBUSY, EINVAL, ETIMEDOUT};
 use crate::libc::pthread::mutex::pthread_mutex_unlock;
 use crate::mem::{ConstPtr, MutPtr, Ptr, SafeRead};
 use crate::{export_c_func, Environment};
@@ -253,11 +253,14 @@ pub fn pthread_cond_destroy(env: &mut Environment, cond: MutPtr<pthread_cond_t>)
             return e;
         }
     };
-    let old_object = State::get_mut(env)
-        .condition_variables
-        .remove(&cond)
-        .unwrap();
-    assert!(old_object.waiting.is_empty() && old_object.waking.is_empty());
+    let conds = &mut State::get_mut(env).condition_variables;
+    let old_object = conds.get(&cond).unwrap();
+    // As on iOS, which returns this rather than destroy it under a waiter.
+    if !old_object.waiting.is_empty() || !old_object.waking.is_empty() {
+        log_once!("Warning: pthread_cond_destroy() with waiters, returning EBUSY");
+        return EBUSY;
+    }
+    conds.remove(&cond);
     0 // success
 }
 

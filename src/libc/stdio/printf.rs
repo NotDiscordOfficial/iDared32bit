@@ -63,18 +63,13 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
         let mut prepend_sign = false;
         let mut left_justified = false;
         let mut pad_char = ' ';
+        let mut alternative_form = false;
         loop {
             match get_format_char(&env.mem, format_char_idx) {
                 b'+' => prepend_sign = true,
                 b'-' => left_justified = true,
                 b'0' => pad_char = '0',
-                b'#' => {
-                    // Alternative form handling
-                    // TODO: other specifiers
-                    assert!(get_format_char(&env.mem, format_char_idx + 1) == b'.');
-                    // TODO: other cases
-                    assert!(get_format_char(&env.mem, format_char_idx + 3) == b'd');
-                }
+                b'#' => alternative_form = true,
                 _ => break,
             }
             format_char_idx += 1;
@@ -186,6 +181,14 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
                     || specifier == b's'
             )
         }
+
+        // The alternative form makes no difference to %d and %i.
+        // TODO: the other specifiers it changes.
+        assert!(
+            !alternative_form || matches!(specifier, b'd' | b'i' | b'g'),
+            "TODO: '#' with %{}",
+            specifier as char,
+        );
 
         let formatted_start = res.len();
         match specifier {
@@ -459,10 +462,13 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
                 if P > X && X >= -4 {
                     let precision: usize = (P - X - 1).try_into().unwrap();
 
-                    let result = f_format(float, pad_width, pad_char, precision);
+                    let mut result = f_format(float, pad_width, pad_char, precision);
 
-                    // TODO: skip if alternative representation is requested
-                    let trimmed_result = if result.contains('.') {
+                    // The alternative form keeps trailing zeros, and the point.
+                    if alternative_form && !result.contains('.') {
+                        result.push('.');
+                    }
+                    let trimmed_result = if result.contains('.') && !alternative_form {
                         result.trim_end_matches('0').trim_end_matches('.')
                     } else {
                         &result

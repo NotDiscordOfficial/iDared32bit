@@ -249,3 +249,6 @@ www.fishlabs.net.gof2hd: --device-family=ipad
 
 # Death Rally
 com.remedy.deathrally: --landscape-left
+
+# 3D Movie Calculator
+com.3dMovieCalc.3DMovieCalculator: --landscape-left

@@ -33,6 +33,8 @@ pub struct UILabelHostObject {
     text_alignment: UITextAlignment,
     line_break_mode: UILineBreakMode,
     number_of_lines: NSInteger,
+    adjusts_font_size_to_fit_width: bool,
+    minimum_font_size: CGFloat,
 }
 impl_HostObject_with_superclass!(UILabelHostObject);
 impl Default for UILabelHostObject {
@@ -45,6 +47,8 @@ impl Default for UILabelHostObject {
             text_alignment: UITextAlignmentLeft,
             line_break_mode: UILineBreakModeTailTruncation,
             number_of_lines: 1,
+            adjusts_font_size_to_fit_width: false,
+            minimum_font_size: 0.0,
         }
     }
 }
@@ -86,6 +90,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
     () = msg![env; this setBackgroundColor:bg_color];
 
+    let key_ns_string = get_static_str(env, "UITextAlignment");
+    let alignment: NSInteger = msg![env; coder decodeIntegerForKey:key_ns_string];
+    () = msg![env; this setTextAlignment:alignment];
+
+    let key_ns_string = get_static_str(env, "UIAdjustsFontSizeToFit");
+    let adjusts: bool = msg![env; coder decodeBoolForKey:key_ns_string];
+    () = msg![env; this setAdjustsFontSizeToFitWidth:adjusts];
+
+    let key_ns_string = get_static_str(env, "UIMinimumFontSize");
+    let minimum: CGFloat = msg![env; coder decodeFloatForKey:key_ns_string];
+    () = msg![env; this setMinimumFontSize:minimum];
+
     // Built-in views don't have user-controlled opaqueness.
     () = msg_super![env; this setOpaque:false];
     this
@@ -113,6 +129,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         text_alignment: _,
         line_break_mode: _,
         number_of_lines: _,
+        adjusts_font_size_to_fit_width: _,
+        minimum_font_size: _,
     } = env.objc.borrow(this);
     release(env, text);
     release(env, font);
@@ -187,14 +205,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (bool)adjustsFontSizeToFitWidth {
-    false // default value
+    env.objc.borrow::<UILabelHostObject>(this).adjusts_font_size_to_fit_width
 }
 - (())setAdjustsFontSizeToFitWidth:(bool)adjusts {
-    assert!(!adjusts); // TODO
+    env.objc.borrow_mut::<UILabelHostObject>(this).adjusts_font_size_to_fit_width = adjusts;
+    () = msg![env; this setNeedsDisplay];
 }
 
+- (CGFloat)minimumFontSize {
+    env.objc.borrow::<UILabelHostObject>(this).minimum_font_size
+}
 - (())setMinimumFontSize:(CGFloat)size {
-    todo_objc_setter!(this, size);
+    env.objc.borrow_mut::<UILabelHostObject>(this).minimum_font_size = size;
+    () = msg![env; this setNeedsDisplay];
 }
 
 - (id)textColor {
@@ -282,6 +305,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         text_alignment,
         line_break_mode,
         number_of_lines,
+        adjusts_font_size_to_fit_width,
+        minimum_font_size,
     } = env.objc.borrow_mut(this);
 
     let (r, g, b, a) = ui_color::get_rgba(&env.objc, text_color);
@@ -289,7 +314,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let single_line = number_of_lines == 1;
 
-    let calculated_size: CGSize = msg![env; this sizeThatFits:(bounds.size)];
+    let mut calculated_size: CGSize = msg![env; this sizeThatFits:(bounds.size)];
+
+    // Shrink the font a point at a time until the text fits, but not below
+    // the minimum size.
+    let mut font = font;
+    if single_line && adjusts_font_size_to_fit_width && text != nil {
+        let mut size: CGFloat = msg![env; font pointSize];
+        while calculated_size.width > bounds.size.width && size > minimum_font_size {
+            size = (size - 1.0).max(minimum_font_size);
+            font = msg![env; font fontWithSize:size];
+            calculated_size = msg![env; text sizeWithFont:font];
+        }
+    }
 
     // UILabel always vertically centers text
     // (TODO: check whether this is actually a UILabel thing, or a property of

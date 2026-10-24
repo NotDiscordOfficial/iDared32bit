@@ -47,6 +47,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ca_layer::CONSTANTS,
         ca_media_timing_function::CONSTANTS,
         ca_transaction::CONSTANTS,
+        ca_transform_3d::CONSTANTS,
     ],
     function_exports: &[FUNCTIONS, ca_transform_3d::FUNCTIONS],
 };

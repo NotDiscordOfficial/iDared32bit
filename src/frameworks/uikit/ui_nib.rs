@@ -292,10 +292,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
-- (())dealloc {
-    env.objc.dealloc_object(this, &mut env.mem)
-}
-
 @end
 
 // Another undocumented type referenced by nib files by name.

@@ -6876,6 +6876,282 @@ int test_NSNotificationCenter_addObserver_nilName_removeObserver() {
   return 0;
 }
 
+int test_NSMutableArray_removeObjectsInArray_otherArray() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+
+  // Duplicate objects are removed as well.
+  NSMutableArray *array =
+      [[NSMutableArray alloc] initWithObjects:@1, @2, @3, @4, @5, @2, nil];
+  NSArray *otherArray = [[NSArray alloc] initWithObjects:@2, @4, @99, nil];
+  [array removeObjectsInArray:otherArray];
+  [otherArray release];
+
+  if ([array count] != 3) {
+    [array release];
+    [pool drain];
+    return -1;
+  }
+
+  // Expected: [1, 3, 5]
+  NSArray *expectedArray = [[NSArray alloc] initWithObjects:@1, @3, @5, nil];
+  if (![array isEqualToArray:expectedArray]) {
+    [expectedArray release];
+    [array release];
+    [pool drain];
+    return -2;
+  }
+
+  [expectedArray release];
+  [array release];
+  [pool drain];
+  return 0;
+}
+
+@interface KVOObserver : NSObject {
+@public
+  int count;
+  id lastNew;
+  id lastOld;
+  void *lastContext;
+}
+@end
+
+@implementation KVOObserver
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary *)change
+                       context:(void *)context {
+  count++;
+  lastNew = [change objectForKey:NSKeyValueChangeNewKey];
+  lastOld = [change objectForKey:NSKeyValueChangeOldKey];
+  lastContext = context;
+}
+@end
+
+// Changes its value the way NSUserDefaults does, with manual notifications.
+@interface KVOObserved : NSObject {
+  NSNumber *value;
+}
+@end
+
+@implementation KVOObserved
+- (id)valueForKey:(NSString *)key {
+  return value;
+}
+- (void)setValue:(NSNumber *)newValue {
+  NSString *key = [NSString stringWithUTF8String:"value"];
+  [self willChangeValueForKey:key];
+  [newValue retain];
+  [value release];
+  value = newValue;
+  [self didChangeValueForKey:key];
+}
+- (void)dealloc {
+  [value release];
+  [super dealloc];
+}
+@end
+
+int test_KVO_manual_notifications() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  KVOObserved *object = [KVOObserved new];
+  KVOObserver *observer = [KVOObserver new];
+  NSString *key = [NSString stringWithUTF8String:"value"];
+  static int context;
+  int res = 0;
+
+  [object
+      addObserver:observer
+       forKeyPath:key
+          options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld |
+                  NSKeyValueObservingOptionInitial
+          context:&context];
+  // Initial: the current value (none), and no old value.
+  if (observer->count != 1 || observer->lastNew != [NSNull null] ||
+      observer->lastOld != nil || observer->lastContext != &context) {
+    res = -1;
+  }
+
+  [object setValue:[NSNumber numberWithInt:5]];
+  if (!res && (observer->count != 2 || [observer->lastNew intValue] != 5 ||
+               observer->lastOld != [NSNull null])) {
+    res = -2;
+  }
+
+  [object setValue:[NSNumber numberWithInt:7]];
+  if (!res && (observer->count != 3 || [observer->lastNew intValue] != 7 ||
+               [observer->lastOld intValue] != 5)) {
+    res = -3;
+  }
+
+  [object removeObserver:observer forKeyPath:key];
+  [object setValue:[NSNumber numberWithInt:9]];
+  if (!res && observer->count != 3) {
+    res = -4;
+  }
+
+  [object release];
+  [observer release];
+  [pool drain];
+  return res;
+}
+
+int test_NSDirectoryEnumerator() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSFileManager *fm = [NSFileManager defaultManager];
+  NSString *bundle = [NSString stringWithUTF8String:path_test_app()];
+  NSString *testApp = [NSString stringWithUTF8String:"TestApp.app"];
+  int res = 0;
+
+  // The bundle's files, in name order, all at level 1.
+  NSDirectoryEnumerator *e = [fm enumeratorAtPath:bundle];
+  if ([[[e directoryAttributes] objectForKey:NSFileType]
+          isEqualToString:NSFileTypeDirectory] == NO) {
+    res = -1;
+    goto out;
+  }
+  char last[256] = "";
+  int count = 0;
+  BOOL foundPlist = NO;
+  for (NSString *name = [e nextObject]; name; name = [e nextObject]) {
+    const char *c_name = [name UTF8String];
+    if (strcmp(last, c_name) >= 0 || [e level] != 1) {
+      res = -2;
+      goto out;
+    }
+    strncpy(last, c_name, sizeof(last) - 1);
+    if (!strcmp(c_name, "Info.plist")) {
+      foundPlist = [[[e fileAttributes] objectForKey:NSFileType]
+          isEqualToString:NSFileTypeRegular];
+    }
+    count++;
+  }
+  if (!foundPlist || count < 2 ||
+      [[[fm enumeratorAtPath:bundle] allObjects] count] != count) {
+    res = -3;
+    goto out;
+  }
+
+  // Skipping the bundle when walking the app's home directory.
+  e = [fm enumeratorAtPath:NSHomeDirectory()];
+  BOOL foundBundle = NO;
+  for (NSString *name = [e nextObject]; name; name = [e nextObject]) {
+    if ([name isEqualToString:testApp]) {
+      foundBundle = YES;
+      if ([e level] != 1) {
+        res = -4;
+        goto out;
+      }
+      [e skipDescendents];
+    } else if (!strncmp([name UTF8String], "TestApp.app/", 12)) {
+      res = -5;
+      goto out;
+    }
+  }
+  if (!foundBundle) {
+    res = -6;
+    goto out;
+  }
+
+  // Without skipping, the bundle's files come next, at level 2.
+  e = [fm enumeratorAtPath:NSHomeDirectory()];
+  BOOL foundInBundle = NO;
+  for (NSString *name = [e nextObject]; name; name = [e nextObject]) {
+    if (!strcmp([name UTF8String], "TestApp.app/Info.plist")) {
+      foundInBundle = [e level] == 2;
+    }
+  }
+  if (!foundInBundle) {
+    res = -7;
+    goto out;
+  }
+
+  // URLs, only the top level.
+  e = [fm enumeratorAtURL:[NSURL fileURLWithPath:NSHomeDirectory()]
+      includingPropertiesForKeys:nil
+                         options:
+                             NSDirectoryEnumerationSkipsSubdirectoryDescendants
+                    errorHandler:nil];
+  foundBundle = NO;
+  for (NSURL *url = [e nextObject]; url; url = [e nextObject]) {
+    const char *path = [[url path] UTF8String];
+    const char *slash = strrchr(path, '/');
+    if (slash && !strcmp(slash, "/TestApp.app")) {
+      foundBundle = YES;
+    } else if (strstr(path, "/TestApp.app/")) {
+      res = -8;
+      goto out;
+    }
+  }
+  if (!foundBundle) {
+    res = -9;
+  }
+
+out:
+  [pool drain];
+  return res;
+}
+
+@interface IMPTarget : NSObject
+- (int)triple:(int)x;
+@end
+
+@implementation IMPTarget
+- (int)triple:(int)x {
+  return x * 3;
+}
+@end
+
+int test_methodForSelector() {
+  IMPTarget *target = [IMPTarget new];
+  int res = 0;
+
+  // A method of the app's own.
+  typedef int (*TripleIMP)(id, SEL, int);
+  SEL triple = @selector(triple:);
+  TripleIMP f = (TripleIMP)[IMPTarget instanceMethodForSelector:triple];
+  if (!f || f(target, triple, 5) != 15 ||
+      (TripleIMP)[target methodForSelector:triple] != f) {
+    res = -1;
+  }
+
+  // A method implemented by the emulator.
+  typedef NSUInteger (*RetainCountIMP)(id, SEL);
+  SEL retainCount = @selector(retainCount);
+  RetainCountIMP g =
+      (RetainCountIMP)[IMPTarget instanceMethodForSelector:retainCount];
+  if (!res && (!g || g(target, retainCount) != 1 ||
+               (RetainCountIMP)[target methodForSelector:retainCount] != g)) {
+    res = -2;
+  }
+
+  [target release];
+  return res;
+}
+
+int test_nil_path_or_key() {
+  if ([NSArray arrayWithContentsOfFile:nil] ||
+      [NSMutableArray arrayWithContentsOfFile:nil] ||
+      [NSDictionary dictionaryWithContentsOfFile:nil] ||
+      [NSMutableDictionary dictionaryWithContentsOfFile:nil])
+    return -1;
+  if ([NSArray arrayWithContentsOfURL:nil] ||
+      [NSMutableArray arrayWithContentsOfURL:nil] ||
+      [NSDictionary dictionaryWithContentsOfURL:nil] ||
+      [NSMutableDictionary dictionaryWithContentsOfURL:nil])
+    return -2;
+  NSDictionary *dict =
+      [NSDictionary dictionaryWithObjects:[NSArray arrayWithObjects:@1, nil]
+                                  forKeys:[NSArray arrayWithObjects:@2, nil]];
+  if ([dict valueForKey:nil])
+    return -3;
+  NSMutableArray *array = [NSMutableArray array];
+  [array removeLastObject];
+  if ([array count] != 0)
+    return -4;
+  return 0;
+}
+
 int test_malloc_zone_basic() {
   malloc_zone_t *zone = malloc_create_zone(0, 0);
   unsigned char *p = malloc_zone_malloc(zone, 128);
@@ -7224,6 +7500,11 @@ struct {
     FUNC_DEF(test_NSNotificationCenter_addObserver_nilName),
     FUNC_DEF(test_NSNotificationCenter_addObserver_nilName_withObject),
     FUNC_DEF(test_NSNotificationCenter_addObserver_nilName_removeObserver),
+    FUNC_DEF(test_NSMutableArray_removeObjectsInArray_otherArray),
+    FUNC_DEF(test_KVO_manual_notifications),
+    FUNC_DEF(test_NSDirectoryEnumerator),
+    FUNC_DEF(test_methodForSelector),
+    FUNC_DEF(test_nil_path_or_key),
     FUNC_DEF(test_malloc_zone_basic),
     FUNC_DEF(test_malloc_zone_struct_dispatch),
     FUNC_DEF(test_fcvt),

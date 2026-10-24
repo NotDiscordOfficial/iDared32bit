@@ -9,10 +9,14 @@
 //! - [Apple's documentation of `class_addMethod`](https://developer.apple.com/documentation/objectivec/1418901-class_addmethod?language=objc)
 
 use super::{
-    id, nil, objc_super, Class, ClassHostObject, MsgSendSignature, MsgSendSuperSignature, ObjC, SEL,
+    id, nil, objc_super, Class, ClassHostObject, MsgSendSignature, MsgSendSuperSignature, ObjC,
+    SEL, TYPE_BOOL, TYPE_CHAR, TYPE_CLASS, TYPE_DOUBLE, TYPE_FLOAT, TYPE_ID, TYPE_INT, TYPE_LONG,
+    TYPE_LONGLONG, TYPE_SEL, TYPE_SHORT, TYPE_UCHAR, TYPE_UINT, TYPE_ULONG, TYPE_ULONGLONG,
+    TYPE_UNDEF, TYPE_USHORT, TYPE_VOID,
 };
 use crate::abi::{CallFromGuest, DotDotDot, GuestArg, GuestFunction, GuestRet};
 use crate::mem::{guest_size_of, ConstPtr, GuestUSize, Mem, Ptr, SafeRead};
+use crate::objc::messages::{lookup_imp_for_class, maybe_initialize_class};
 use crate::Environment;
 use std::any::TypeId;
 
@@ -24,17 +28,10 @@ use std::any::TypeId;
 /// "guest methods" (functions in the guest app). Either way, the function needs
 /// to conform to the same ABI: [id] and [SEL] must be its first two parameters.
 #[allow(clippy::upper_case_acronyms)]
+#[derive(Clone)]
 pub enum IMP {
     Host(&'static dyn HostIMP),
     Guest(GuestIMP),
-}
-impl Clone for IMP {
-    fn clone(&self) -> Self {
-        match self {
-            IMP::Guest(guest_imp) => IMP::Guest(*guest_imp),
-            IMP::Host(_) => unimplemented!(),
-        }
-    }
 }
 impl std::fmt::Debug for IMP {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -57,7 +54,7 @@ impl GuestArg for IMP {
     }
     fn to_regs(self, regs: &mut [u32]) {
         match self {
-            IMP::Guest(guest_imp) => guest_imp.to_regs(regs),
+            IMP::Guest(guest_imp) => <GuestFunction as GuestArg>::to_regs(guest_imp, regs),
             IMP::Host(_) => unimplemented!(),
         }
     }
@@ -68,16 +65,24 @@ impl GuestRet for IMP {
     }
     fn to_regs(self, regs: &mut [u32]) {
         match self {
-            IMP::Guest(guest_imp) => guest_imp.to_regs(regs),
+            IMP::Guest(guest_imp) => <GuestFunction as GuestRet>::to_regs(guest_imp, regs),
             IMP::Host(_) => unimplemented!(),
         }
     }
+}
+
+pub struct Method {
+    pub types: String,
+    pub imp: IMP,
 }
 
 /// Type for any host function implementing a method (see also [IMP]).
 pub trait HostIMP: CallFromGuest {
     /// See [MsgSendSignature::type_info].
     fn type_info(&self) -> (TypeId, &'static str);
+
+    /// An Objective-C style types string
+    fn types_string(&self) -> String;
 }
 
 macro_rules! impl_HostIMP {
@@ -90,6 +95,15 @@ macro_rules! impl_HostIMP {
             fn type_info(&self) -> (TypeId, &'static str) {
                 <(R, (id, SEL, $($P,)*)) as MsgSendSignature>::type_info()
             }
+
+            fn types_string(&self) -> String {
+                // TODO: VERY INCOMPLETE! Include each type's offsets
+                String::from_iter(&[
+                    type_char(TypeId::of::<R>()),
+                    type_char(TypeId::of::<SEL>()),
+                    $(type_char(TypeId::of::<$P>()),)*
+                ])
+            }
         }
         impl<R, $($P,)*> HostIMP for fn(&mut Environment, id, SEL, $($P,)* DotDotDot) -> R
         where
@@ -98,6 +112,16 @@ macro_rules! impl_HostIMP {
         {
             fn type_info(&self) -> (TypeId, &'static str) {
                 todo!("host-to-host message calls with var-args"); // TODO
+            }
+
+            fn types_string(&self) -> String {
+                // TODO: VERY INCOMPLETE! Include each type's offsets
+                String::from_iter(&[
+                    type_char(TypeId::of::<R>()),
+                    type_char(TypeId::of::<SEL>()),
+                    $(type_char(TypeId::of::<$P>()),)*
+                    '?', // TODO: Varargs
+                ])
             }
         }
 
@@ -134,6 +158,7 @@ pub type GuestIMP = GuestFunction;
 /// The layout of a method list in an app binary.
 ///
 /// The name, field names and field layout are based on what Ghidra outputs.
+#[allow(non_camel_case_types)]
 #[repr(C, packed)]
 pub(super) struct method_list_t {
     entsize: GuestUSize,
@@ -145,6 +170,7 @@ unsafe impl SafeRead for method_list_t {}
 /// The layout of a method in an app binary, and of what a `Method` points to.
 ///
 /// The name, field names and field layout are based on what Ghidra outputs.
+#[allow(non_camel_case_types)]
 #[repr(C, packed)]
 pub(super) struct method_t {
     pub(super) name: ConstPtr<u8>,
@@ -176,7 +202,13 @@ impl ClassHostObject {
             // There is no guarantee this string is unique or known.
             // We must deduplicate it like any other.
             let sel = objc.register_bin_selector(name, mem);
-            self.methods.insert(sel, IMP::Guest(imp));
+            self.methods.insert(
+                sel,
+                Method {
+                    types: mem.cstr_at_utf8(types).unwrap().to_string(),
+                    imp: IMP::Guest(imp),
+                },
+            );
             // TODO: avoid storing duplicated signatures globally
             self.guest_method_signatures.insert(sel, types);
         }
@@ -323,5 +355,95 @@ impl ObjC {
             }
         }
         selector_strings
+    }
+
+    pub fn class_get_method_guest_function(
+        env: &mut Environment,
+        class: Class,
+        sel: SEL,
+    ) -> GuestFunction {
+        if class == nil {
+            return GuestFunction::from_addr_with_thumb_bit(0);
+        }
+        if let Some(cached) = env.objc.cached_guest_functions.get(&(class, sel)) {
+            return *cached;
+        }
+        let &super::ClassHostObject { is_metaclass, .. } = env.objc.borrow(class);
+        if is_metaclass {
+            env.objc.get_non_metaclass(&mut env.mem, class);
+            // We need to initialize the class before the guest application is
+            // allowed to call any class methods, so we have to check now before
+            // it gets a handle to one.
+            maybe_initialize_class(env, class);
+        }
+        let Some(imp) = lookup_imp_for_class(env, class, sel, nil, false) else {
+            unimplemented!("Called class_get_method_guest_function on fake class, unimplemented!")
+        };
+        let guest_function = match imp {
+            IMP::Host(host_imp) => {
+                let mut func_name = String::new();
+                let super::ClassHostObject {
+                    name, is_metaclass, ..
+                } = env.objc.borrow(class);
+                if *is_metaclass {
+                    func_name.push_str("Trampoline for +[")
+                } else {
+                    func_name.push_str("Trampoline for -[")
+                }
+                func_name.push_str(name);
+                func_name.push(' ');
+                func_name.push_str(sel.as_str(&env.mem));
+                func_name.push(']');
+                env.dyld
+                    .create_guest_function(&mut env.mem, func_name.leak(), host_imp)
+            }
+            IMP::Guest(guest_function) => guest_function,
+        };
+        env.objc
+            .cached_guest_functions
+            .insert((class, sel), guest_function);
+        guest_function
+    }
+}
+
+fn type_char(type_id: TypeId) -> char {
+    // TODO: Handle arrays, structs, unions, bitfields, pointers and other
+    // types that span multiple chars
+    if type_id == TypeId::of::<id>() {
+        TYPE_ID
+    } else if type_id == TypeId::of::<Class>() {
+        TYPE_CLASS
+    } else if type_id == TypeId::of::<SEL>() {
+        TYPE_SEL
+    } else if type_id == TypeId::of::<i8>() {
+        TYPE_CHAR
+    } else if type_id == TypeId::of::<u8>() {
+        TYPE_UCHAR
+    } else if type_id == TypeId::of::<i16>() {
+        TYPE_SHORT
+    } else if type_id == TypeId::of::<u16>() {
+        TYPE_USHORT
+    } else if type_id == TypeId::of::<i32>() {
+        TYPE_INT
+    } else if type_id == TypeId::of::<u32>() {
+        TYPE_UINT
+    } else if type_id == TypeId::of::<i32>() {
+        TYPE_LONG
+    } else if type_id == TypeId::of::<u32>() {
+        TYPE_ULONG
+    } else if type_id == TypeId::of::<i64>() {
+        TYPE_LONGLONG
+    } else if type_id == TypeId::of::<u64>() {
+        TYPE_ULONGLONG
+    } else if type_id == TypeId::of::<f32>() {
+        TYPE_FLOAT
+    } else if type_id == TypeId::of::<f64>() {
+        TYPE_DOUBLE
+    } else if type_id == TypeId::of::<bool>() {
+        TYPE_BOOL
+    } else if type_id == TypeId::of::<std::ffi::c_void>() || type_id == TypeId::of::<()>() {
+        TYPE_VOID
+    } else {
+        TYPE_UNDEF
     }
 }
