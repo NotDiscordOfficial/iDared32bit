@@ -247,10 +247,7 @@ impl Cpu {
         }
     }
 
-    fn copy_recent_instruction_trace(
-        &self,
-        output: &mut [touchHLE_MgbaInstructionTrace],
-    ) -> usize {
+    fn copy_recent_instruction_trace(&self, output: &mut [touchHLE_MgbaInstructionTrace]) -> usize {
         unsafe {
             touchHLE_MgbaWrapper_copy_recent_instruction_trace(
                 self.mgba_wrapper,
