@@ -288,7 +288,7 @@ forUndefinedKey:(id)key { // NSString*
 
 - (id)methodSignatureForSelector:(SEL)selector {
     let class: Class = msg![env; this class];
-    msg_class![env; class instanceMethodSignatureForSelector:selector]
+    msg![env; class instanceMethodSignatureForSelector:selector]
 }
 
 // Return the callable implementation for an instance method.
