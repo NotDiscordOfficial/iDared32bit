@@ -32,12 +32,16 @@ const UIControlEventTouchDragExit: UIControlEvents = 1 << 5;
 pub const UIControlEventTouchUpInside: UIControlEvents = 1 << 6;
 const UIControlEventTouchUpOutside: UIControlEvents = 1 << 7;
 pub const UIControlEventValueChanged: UIControlEvents = 1 << 12;
+pub const UIControlEventEditingDidBegin: UIControlEvents = 1 << 16;
+pub const UIControlEventEditingChanged: UIControlEvents = 1 << 17;
+pub const UIControlEventEditingDidEnd: UIControlEvents = 1 << 18;
+pub const UIControlEventEditingDidEndOnExit: UIControlEvents = 1 << 19;
 
 // TODO: Add the other UIControlContentVerticalAlignment enums
 pub type UIControlContentVerticalAlignment = NSInteger;
 const UIControlContentVerticalAlignmentCenter: UIControlContentVerticalAlignment = 0;
 
-struct UIControlHostObject {
+pub(super) struct UIControlHostObject {
     superclass: super::UIViewHostObject,
     enabled: bool,
     selected: bool,
@@ -74,7 +78,13 @@ const UIControlStateSelected: UIControlState = 1 << 2;
 #[allow(dead_code)]
 const UIControlStateFocused: UIControlState = 1 << 3;
 
-fn send_actions(env: &mut Environment, this: id, event: id, control_event: UIControlEvents) {
+/// Returns whether there were any actions to send.
+pub(super) fn send_actions(
+    env: &mut Environment,
+    this: id,
+    event: id,
+    control_event: UIControlEvents,
+) -> bool {
     log_dbg!(
         "Control event {:?} in control {:?} for event {:?}",
         control_event,
@@ -89,11 +99,13 @@ fn send_actions(env: &mut Environment, this: id, event: id, control_event: UICon
         .map(|&(target, action, _for_control_events)| (target, action))
         .collect();
 
+    let any = !action_targets.is_empty();
     for (target, action) in action_targets {
         assert!(target != nil); // TODO
 
         () = msg![env; this sendAction:action to:target forEvent:event];
     }
+    any
 }
 
 pub const CLASSES: ClassExports = objc_classes! {

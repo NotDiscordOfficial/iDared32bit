@@ -5,21 +5,20 @@
  */
 //! `NSBundle`.
 
-use super::{ns_string, NSNotFound, NSRange, NSUInteger};
+use super::{ns_data, ns_string, NSUInteger};
 use crate::bundle::Bundle;
 use crate::frameworks::core_foundation::cf_bundle::{
     CFBundleCopyBundleLocalizations, CFBundleCopyPreferredLocalizationsFromArray,
 };
-use crate::frameworks::foundation::ns_string::{
-    from_rust_string, to_rust_string, NSUTF8StringEncoding,
-};
-use crate::mem::{ConstVoidPtr, MutPtr, Ptr};
+use crate::frameworks::foundation::ns_string::{from_rust_string, to_rust_string};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
     HostObject, NSZonePtr,
 };
 use crate::Environment;
 use std::collections::{HashMap, HashSet};
+
+use crate::fs::{FsNodeType, GuestPath};
 
 // Should be ISO 639-1 (or ISO 639-2) compliant
 // Legacy projects use language names while newer ones use language code lprojs
@@ -73,6 +72,20 @@ pub const CLASSES: ClassExports = objc_classes! {
         env.framework_state.foundation.ns_bundle.main_bundle = Some(new);
         new
    }
+}
+
+// Only the app's own bundle exists here, not the system frameworks' ones.
++ (id)bundleWithIdentifier:(id)identifier { // NSString*
+    let main_bundle: id = msg![env; this mainBundle];
+    let main_id: id = msg![env; main_bundle bundleIdentifier];
+    if identifier != nil && msg![env; identifier isEqualToString:main_id] {
+        return main_bundle;
+    }
+    log!(
+        "Warning: [NSBundle bundleWithIdentifier:{:?}] returning nil, only the app's own bundle is available",
+        if identifier == nil { "nil".into() } else { ns_string::to_rust_string(env, identifier) }
+    );
+    nil
 }
 
 + (id)preferredLocalizationsFromArray:(id)localizations_array { // NSArray<NSString *> *
@@ -168,7 +181,24 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)pathForResource:(id)name // NSString*
                ofType:(id)extension // NSString*
           inDirectory:(id)directory { // NSString*
-    assert!(name != nil); // TODO
+    let is_empty = |env: &mut Environment, s: id| {
+        s == nil || ns_string::to_rust_string(env, s).is_empty()
+    };
+    // As in Core Foundation: no name means the first file of the type, and
+    // no type means any type.
+    if is_empty(env, name) {
+        let paths: id = msg![env; this pathsForResourcesOfType:extension inDirectory:directory];
+        let count: NSUInteger = msg![env; paths count];
+        let mut first: Option<(String, id)> = None;
+        for i in 0..count {
+            let path: id = msg![env; paths objectAtIndex:i];
+            let path_str = ns_string::to_rust_string(env, path).into_owned();
+            if first.as_ref().is_none_or(|(f, _)| path_str < *f) {
+                first = Some((path_str, path));
+            }
+        }
+        return first.map_or(nil, |(_, path)| path);
+    }
 
     // TODO: cache result of lookups
 
@@ -335,6 +365,68 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, preferred_localizations)
 }
 
+// https://developer.apple.com/documentation/foundation/bundle/paths(forresourcesoftype:indirectory:)-swift.method?language=objc
+- (id)pathsForResourcesOfType:(id)extension
+                  inDirectory:(id)subpath {
+    let resource_path: id = msg![env; this resourcePath];
+    let mut dir_path = ns_string::to_rust_string(env, resource_path).into_owned();
+
+    if subpath != nil {
+        let sub = ns_string::to_rust_string(env, subpath);
+        if !sub.is_empty() {
+            dir_path.push('/');
+            dir_path.push_str(&sub);
+        }
+    }
+
+    let target_ext = if extension != nil {
+        let ext_str = ns_string::to_rust_string(env, extension);
+        let ext_trimmed = ext_str.trim_start_matches('.').to_lowercase();
+
+        if ext_trimmed.is_empty() {
+            None
+        } else {
+            Some(ext_trimmed)
+        }
+    } else {
+        None
+    };
+
+    let mut found_paths: Vec<String> = Vec::new();
+    let guest_path = GuestPath::new(&dir_path);
+
+    match env.fs.enumerate_with_types(guest_path) {
+        Ok(entries) => {
+            for (name, node_type) in entries {
+                if matches!(node_type, FsNodeType::File) {
+                    let keep = match &target_ext {
+                        Some(ext) => name.to_lowercase().ends_with(&format!(".{}", ext)),
+                        None => true,
+                    };
+                    if keep {
+                        let clean_path = format!("{}/{}", dir_path, name).replace("//", "/");
+                        found_paths.push(clean_path);
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            log!("Failed to read guest directory {:?}", dir_path);
+        }
+    }
+
+    let array: id = msg_class![env; NSMutableArray new];
+    for path_str in &found_paths {
+        let path_ns: id = ns_string::from_rust_string(env, path_str.to_string());
+        let path_ns = autorelease(env, path_ns);
+        let _: () = msg![env; array addObject:path_ns];
+    }
+
+    log_dbg!("[(NSBundle*) {:?} pathsForResourcesOfType:{:?} inDirectory:{:?}] found {} files", this, extension, subpath, found_paths.len());
+
+    autorelease(env, array)
+}
+
 // TODO: constructors, more accessors
 
 @end
@@ -405,58 +497,24 @@ fn path_for_resource_helper(
 /// [String Resources reference](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/LoadingResources/Strings/Strings.html#//apple_ref/doc/uid/10000051i-CH6)
 fn load_strings_as_standard_format(env: &mut Environment, dict_url: id) -> id {
     let res: id = msg_class![env; NSMutableDictionary new];
-    // TODO: avoid loading whole file in memory
     let data: id = msg_class![env; NSData dataWithContentsOfURL:dict_url];
     assert!(data != nil); // TODO
-    let length: NSUInteger = msg![env; data length];
-    assert!(length > 2);
-    let bytes: ConstVoidPtr = msg![env; data bytes];
-    let maybe_bom = env.mem.bytes_at(bytes.cast(), 2);
-    assert!(maybe_bom[0..2] != [0xFE, 0xFF] && maybe_bom[0..2] != [0xFF, 0xFE]); // TODO: UTF-16 cases
-    let strings_str = msg_class![env; NSString alloc];
-    let strings_str: id = msg![env; strings_str initWithData:data encoding:NSUTF8StringEncoding];
-    assert!(strings_str != nil); // TODO
-
-    let comment_start = ns_string::get_static_str(env, "/*");
-    let comment_end = ns_string::get_static_str(env, "*/");
-    let equal_sign = ns_string::get_static_str(env, "=");
-    let semicolon = ns_string::get_static_str(env, ";");
-
-    let null_ptr: MutPtr<id> = Ptr::null();
-
-    let scanner: id = msg_class![env; NSScanner scannerWithString:strings_str];
-    release(env, strings_str);
-    while !msg![env; scanner isAtEnd] {
-        while msg![env; scanner scanString:comment_start intoString:null_ptr] {
-            // Assume no nested comments!
-            let _: bool = msg![env; scanner scanUpToString:comment_end intoString:null_ptr];
-            let has_comment_end: bool =
-                msg![env; scanner scanString:comment_end intoString:null_ptr];
-            assert!(has_comment_end);
-            if msg![env; scanner isAtEnd] {
-                break;
-            }
-        }
-        if msg![env; scanner isAtEnd] {
-            break;
-        }
-        let key: id = scan_quoted_sanitized(env, scanner);
-
-        let _: bool = msg![env; scanner scanUpToString:equal_sign intoString:null_ptr];
-        let has_equal_sign: bool = msg![env; scanner scanString:equal_sign intoString:null_ptr];
-        assert!(has_equal_sign);
-
-        let val: id = scan_quoted_sanitized(env, scanner);
-
-        let has_semicolon: bool = msg![env; scanner scanString:semicolon intoString:null_ptr];
-        assert!(has_semicolon);
-
-        log_dbg!(
-            "Parsed strings: '{}' -> '{}'",
-            to_rust_string(env, key),
-            to_rust_string(env, val)
-        );
+    let pairs = decode_strings_file(ns_data::to_rust_slice(env, data))
+        .and_then(|text| parse_strings_file(&text));
+    // Like on iOS, a file that can't be parsed gives an empty table, so
+    // lookups return their key.
+    let pairs = pairs.unwrap_or_else(|e| {
+        let path: id = msg![env; dict_url path];
+        log!("Warning: Can't parse {}: {}", to_rust_string(env, path), e);
+        Vec::new()
+    });
+    for (key, val) in pairs {
+        log_dbg!("Parsed strings: '{}' -> '{}'", key, val);
+        let key = from_rust_string(env, key);
+        let val = from_rust_string(env, val);
         () = msg![env; res setObject:val forKey:key];
+        release(env, key);
+        release(env, val);
     }
 
     let res_imm = msg![env; res copy];
@@ -464,35 +522,163 @@ fn load_strings_as_standard_format(env: &mut Environment, dict_url: id) -> id {
     autorelease(env, res_imm)
 }
 
-fn scan_quoted_sanitized(env: &mut Environment, scanner: id) -> id {
-    let quote = ns_string::get_static_str(env, "\"");
-    let null_ptr: MutPtr<id> = Ptr::null();
-    let res_ptr: MutPtr<id> = env.mem.alloc_and_write(Ptr::null());
+fn decode_strings_file(bytes: &[u8]) -> Result<String, String> {
+    let utf16 = |bytes: &[u8], from: fn([u8; 2]) -> u16| {
+        let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|&c| from(c)).collect();
+        String::from_utf16(&units).map_err(|_| "invalid UTF-16".to_string())
+    };
+    match bytes {
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, u16::from_be_bytes),
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, u16::from_le_bytes),
+        [0xEF, 0xBB, 0xBF, rest @ ..] | rest => std::str::from_utf8(rest)
+            .map(str::to_string)
+            .map_err(|_| "invalid UTF-8".to_string()),
+    }
+}
 
-    let orig_skip_set = msg![env; scanner charactersToBeSkipped];
-    retain(env, orig_skip_set);
+/// Parses `"key" = "value";` pairs. Keys and values may be unquoted if they
+/// only use letters, digits and `_$+/:.-`; `"key";` maps a key to itself.
+fn parse_strings_file(text: &str) -> Result<Vec<(String, String)>, String> {
+    let mut chars = text.chars().peekable();
+    let mut pairs = Vec::new();
+    loop {
+        skip_whitespace_and_comments(&mut chars)?;
+        if chars.peek().is_none() {
+            return Ok(pairs);
+        }
+        let key = parse_string_token(&mut chars)?;
+        skip_whitespace_and_comments(&mut chars)?;
+        let val = match chars.next() {
+            Some(';') => key.clone(),
+            Some('=') => {
+                skip_whitespace_and_comments(&mut chars)?;
+                let val = parse_string_token(&mut chars)?;
+                skip_whitespace_and_comments(&mut chars)?;
+                if chars.next() != Some(';') {
+                    return Err(format!("missing ';' after {key:?}"));
+                }
+                val
+            }
+            _ => return Err(format!("missing '=' after {key:?}")),
+        };
+        pairs.push((key, val));
+    }
+}
 
-    let has_open_quote: bool = msg![env; scanner scanString:quote intoString:null_ptr];
-    assert!(has_open_quote);
-    // Should not skip chars at the beginning!
-    () = msg![env; scanner setCharactersToBeSkipped:nil];
-    let _: bool = msg![env; scanner scanUpToString:quote intoString:res_ptr];
-    () = msg![env; scanner setCharactersToBeSkipped:orig_skip_set];
-    release(env, orig_skip_set);
-    let has_end_quote: bool = msg![env; scanner scanString:quote intoString:null_ptr];
-    assert!(has_end_quote);
+type Chars<'a> = std::iter::Peekable<std::str::Chars<'a>>;
 
-    let res = env.mem.read(res_ptr);
-    env.mem.free(res_ptr.cast());
-    assert!(res != nil); // TODO
+fn skip_whitespace_and_comments(chars: &mut Chars) -> Result<(), String> {
+    while let Some(&c) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+            continue;
+        }
+        if c != '/' {
+            break;
+        }
+        let mut lookahead = chars.clone();
+        lookahead.next();
+        match lookahead.next() {
+            Some('/') => {
+                for c in chars.by_ref() {
+                    if c == '\n' || c == '\r' {
+                        break;
+                    }
+                }
+            }
+            Some('*') => {
+                chars.nth(1);
+                let mut prev = '\0';
+                loop {
+                    match chars.next() {
+                        Some('/') if prev == '*' => break,
+                        Some(c) => prev = c,
+                        None => return Err("unclosed comment".to_string()),
+                    }
+                }
+            }
+            // An unquoted string starting with '/'.
+            _ => break,
+        }
+    }
+    Ok(())
+}
 
-    // TODO: implement generic parsing approach for unquoting
-    let quoted_newline: id = ns_string::get_static_str(env, "\\n");
-    let unquoted_newline: id = ns_string::get_static_str(env, "\n");
-    let res = msg![env; res stringByReplacingOccurrencesOfString:quoted_newline withString:unquoted_newline];
+fn is_unquoted_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "_$+/:.-".contains(c)
+}
 
-    let backslash = ns_string::get_static_str(env, "\\");
-    let range: NSRange = msg![env; res rangeOfString:backslash];
-    assert!(range.location == NSNotFound as NSUInteger); // TODO
-    res
+fn parse_string_token(chars: &mut Chars) -> Result<String, String> {
+    let mut res = String::new();
+    match chars.peek() {
+        Some('"') => {
+            chars.next();
+        }
+        Some(&c) if is_unquoted_char(c) => {
+            while let Some(c) = chars.next_if(|&c| is_unquoted_char(c)) {
+                res.push(c);
+            }
+            return Ok(res);
+        }
+        c => return Err(format!("unexpected {c:?} where a string should be")),
+    }
+    loop {
+        let c = match chars.next() {
+            Some('"') => return Ok(res),
+            Some('\\') => match chars.next() {
+                Some('a') => '\x07',
+                Some('b') => '\x08',
+                Some('f') => '\x0C',
+                Some('n') => '\n',
+                Some('r') => '\r',
+                Some('t') => '\t',
+                Some('v') => '\x0B',
+                Some('U') | Some('u') => {
+                    let mut unit = 0;
+                    for _ in 0..4 {
+                        let Some(d) = chars.next_if(char::is_ascii_hexdigit) else {
+                            break;
+                        };
+                        unit = unit * 16 + d.to_digit(16).unwrap();
+                    }
+                    // Surrogate pairs come as two escapes.
+                    if (0xD800..0xDC00).contains(&unit) {
+                        let mut lookahead = chars.clone();
+                        let mut low = 0;
+                        if lookahead.next() == Some('\\')
+                            && matches!(lookahead.next(), Some('U' | 'u'))
+                        {
+                            for _ in 0..4 {
+                                let Some(d) = lookahead.next_if(char::is_ascii_hexdigit) else {
+                                    break;
+                                };
+                                low = low * 16 + d.to_digit(16).unwrap();
+                            }
+                        }
+                        if (0xDC00..0xE000).contains(&low) {
+                            *chars = lookahead;
+                            unit = 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00);
+                        }
+                    }
+                    char::from_u32(unit).unwrap_or('\u{FFFD}')
+                }
+                Some(d @ '0'..='7') => {
+                    let mut code = d.to_digit(8).unwrap();
+                    for _ in 0..2 {
+                        let Some(d) = chars.next_if(|c| ('0'..='7').contains(c)) else {
+                            break;
+                        };
+                        code = code * 8 + d.to_digit(8).unwrap();
+                    }
+                    char::from_u32(code).unwrap()
+                }
+                // Any other escaped character (", ', \\, newline) is itself.
+                Some(c) => c,
+                None => return Err("unclosed string".to_string()),
+            },
+            Some(c) => c,
+            None => return Err("unclosed string".to_string()),
+        };
+        res.push(c);
+    }
 }

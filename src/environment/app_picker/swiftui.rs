@@ -32,7 +32,23 @@ pub fn is_available() -> bool {
     PICKER.get().is_some()
 }
 
-pub fn app_picker(apps: Result<Vec<AppInfo>, String>) -> Result<(PathBuf, Vec<String>), String> {
+pub enum Picked {
+    /// The app's path and option arguments.
+    App(PathBuf, Vec<String>),
+    /// The Games folder changed, so the picker should be shown again.
+    Reload(ReloadState),
+}
+
+/// What the picker keeps when it's shown again.
+pub struct ReloadState {
+    page: usize,
+    quick_option_values: Vec<usize>,
+}
+
+pub fn app_picker(
+    apps: Result<Vec<AppInfo>, String>,
+    state: Option<ReloadState>,
+) -> Result<Picked, String> {
     let picker = *PICKER.get().unwrap();
     let (apps, error) = match apps {
         Ok(apps) => (apps, None),
@@ -89,13 +105,35 @@ pub fn app_picker(apps: Result<Vec<AppInfo>, String>) -> Result<(PathBuf, Vec<St
         .collect();
     let optional = |s: Option<String>| s.map_or("null".to_owned(), |s| json_string(&s));
     let json = format!(
-        "{{\"apps\":[{}],\"error\":{},\"wallpaperPath\":{},\"branding\":{},\
+        "{{\"apps\":[{}],\"error\":{},\"wallpaperPath\":{},\
+         \"wallpaperFolder\":{},\"wallpaperFiles\":[{}],\"appsFolder\":{},\
+         \"initialPage\":{},\"initialQuickOptionValues\":{},\"branding\":{},\
          \"shortVersionText\":{},\"copyright\":{},\
          \"fileManagerURL\":{},\"websiteURL\":{},\"quickOptions\":[{}],\
          \"startError\":{}}}",
         apps_json.join(","),
         optional(error),
         optional(wallpaper.map(|p| p.to_string_lossy().into_owned())),
+        json_string(&paths::user_data_base_path().to_string_lossy()),
+        paths::wallpaper_files()
+            .iter()
+            .map(|file| json_string(file))
+            .collect::<Vec<_>>()
+            .join(","),
+        json_string(
+            &paths::user_data_base_path()
+                .join(paths::apps_dir())
+                .to_string_lossy()
+        ),
+        state.as_ref().map_or(0, |state| state.page),
+        state.as_ref().map_or("null".to_owned(), |state| {
+            let values: Vec<String> = state
+                .quick_option_values
+                .iter()
+                .map(usize::to_string)
+                .collect();
+            format!("[{}]", values.join(","))
+        }),
         json_string(branding),
         json_string(crate::DISPLAY_VERSION),
         json_string(&crate::licenses::get_text()),
@@ -118,6 +156,16 @@ pub fn app_picker(apps: Result<Vec<AppInfo>, String>) -> Result<(PathBuf, Vec<St
     unsafe { libc::free(result_ptr.cast()) };
 
     let mut lines = result.lines();
+    if result.starts_with("reload\n") {
+        lines.next();
+        let page = lines.next().and_then(|page| page.parse().ok()).unwrap_or(0);
+        let quick_option_values = lines.map(|value| value.parse().unwrap_or(0)).collect();
+        echo!("The Games folder changed, so the app picker is shown again.");
+        return Ok(Picked::Reload(ReloadState {
+            page,
+            quick_option_values,
+        }));
+    }
     let app = lines
         .next()
         .and_then(|idx| idx.parse::<usize>().ok())
@@ -125,7 +173,10 @@ pub fn app_picker(apps: Result<Vec<AppInfo>, String>) -> Result<(PathBuf, Vec<St
         .ok_or_else(|| "The app picker returned an invalid app.".to_string())?;
     let values: Vec<usize> = lines.map(|value| value.parse().unwrap_or(0)).collect();
     echo!("Picked: {}", app.path.display());
-    Ok((app.path.clone(), quick_option_args(&values).collect()))
+    Ok(Picked::App(
+        app.path.clone(),
+        quick_option_args(&values).collect(),
+    ))
 }
 
 fn json_string(s: &str) -> String {

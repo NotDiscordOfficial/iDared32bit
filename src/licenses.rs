@@ -52,7 +52,7 @@ warranty of any kind; see sections 6 and 7 of the license.
 
 Separately from the program itself, it carries copies of the libgcc and
 libstdc++ libraries from Apple's iPhone OS SDK, which apps running inside the
-emulated device link against. On iOS, these copies are stored inside the app's
+emulated device link against. On iOS, these copies are embedded in the app's
 executable file, as data. They are separate programs, licensed under the GNU
 GPL version 2 or later. They run only inside the emulated device, are not
 linked with iDared 32bit, and do not change its license. Their license notices,
@@ -77,6 +77,39 @@ and licensed as follows:
 /// Names, versions, authors and licenses of Rust crates depended on by release
 /// binaries. See `build.rs` for how this is generated.
 const RUST_DEPENDENCIES: &str = include_str!(concat!(env!("OUT_DIR"), "/rust_dependencies.txt"));
+
+/// Rust libraries offered only under Apache-2.0 (not MIT).
+const APACHE_ONLY_CRATES: &[&str] = &[
+    "ab_glyph_rasterizer",
+    "hound",
+    "mach_object",
+    "owned_ttf_parser",
+];
+/// Rust libraries with an extra license, whose text is shown below.
+#[cfg(test)]
+const EXTRA_LICENSE_CRATES: &[(&str, &str)] = &[
+    ("encoding_rs", "BSD-3-Clause"),
+    ("unicode-ident", "Unicode-3.0"),
+];
+const APACHE_2_0: &str = include_str!("licenses/Apache-2.0.txt");
+/// encoding_rs's copyright line, then the license.
+const BSD_3_CLAUSE: &str = include_str!("licenses/BSD-3-Clause-encoding_rs.txt");
+const UNICODE_3_0: &str = include_str!("licenses/Unicode-3.0-unicode-ident.txt");
+const SDL2_SUN_LIBM: &str = include_str!("licenses/Sun-libm.txt");
+const SDL2_X11_IMKSTOUCS: &str = include_str!("licenses/MIT-imKStoUCS.txt");
+
+const YUV2RGB_CONDITION_3: &str = "
+For yuv2rgb, condition 3 reads: \"Neither the name of yuv2rgb nor the names of
+its contributors may be used to endorse or promote products derived from this
+software without specific prior written permission.\"";
+
+/// `{}` is where the libxml2 license (MIT) is.
+const RUST_MIT_DESCRIPTION: &str =
+    "The Rust libraries listed as licensed under MIT, alone or as one of their
+options, are used under the MIT license: the same terms as the libxml2 license
+{}, with each library's listed authors as
+its copyright holders.
+";
 
 const MGBA_DESCRIPTION: &str = "
 iDared 32bit, and therefore this executable, incorporates a modified copy of
@@ -149,6 +182,12 @@ This distribution of iDared 32bit includes binaries for the libgcc and libstdc++
 libraries from the Free Software Foundation, as originally distributed by Apple:
 ";
 
+const INTERNAL_FSF_DYLIBS_GPL_HEADING: &str = "
+The following license applies only to the libgcc and libstdc++ libraries
+described above. It does not apply to iDared 32bit, which is licensed under
+the MPL-2.0.
+";
+
 const INTERNAL_FSF_DYLIBS_OFFER: &str = "
 Written offer, valid for three years from the date you received this
 distribution: on request, the maintainer of iDared 32bit will give any third
@@ -180,12 +219,17 @@ the following license:
 ";
 
 const INTERNAL_LIBERATION_FONTS_DESCRIPTION: &str = "
-This distribution of iDared 32bit includes Liberation Sans fonts, available under
-the following license:
+This distribution of iDared 32bit includes Liberation fonts (Sans, Serif and
+Mono), available under the following license:
 ";
 
 const INTERNAL_NOTO_FONTS_DESCRIPTION: &str = "
 This distribution of iDared 32bit includes Noto Sans CJK fonts, available under the
+following license:
+";
+
+const INTERNAL_CAVEATBRUSH_FONTS_DESCRIPTION: &str = "
+This distribution of iDared 32bit includes Caveat Brush fonts, available under the
 following license:
 ";
 
@@ -206,6 +250,7 @@ fn embedded_in_file(path: &str) -> Option<&'static str> {
         file!("dylibs/COPYING.libxml2"),
         file!("touchHLE_fonts/LICENSE.liberation"),
         file!("touchHLE_fonts/LICENSE.noto"),
+        file!("touchHLE_fonts/LICENSE.caveatbrush"),
     ];
     // The keys are the files' paths in the repository, which differ from
     // the iOS app bundle's for the fonts.
@@ -258,11 +303,64 @@ fn print(out: &mut String, resources_are_external_files: bool) -> Result<(), std
     }
     writeln!(out, "{RUST_DESCRIPTION}")?;
     writeln!(out, "{RUST_DEPENDENCIES}")?;
+    let libxml2_license = if resources_are_external_files {
+        format!("in {}/COPYING.libxml2", crate::paths::DYLIBS_DIR)
+    } else {
+        "shown in this document".to_string()
+    };
+    writeln!(
+        out,
+        "{}",
+        RUST_MIT_DESCRIPTION.replace("{}", &libxml2_license)
+    )?;
+    divider(out)?;
+    writeln!(
+        out,
+        "\nThe following are licensed under the Apache License, version 2.0:\n",
+    )?;
+    for name in APACHE_ONLY_CRATES {
+        writeln!(out, "- {name} (Rust library)")?;
+    }
+    writeln!(out, "- the Kotlin standard library (Android only)")?;
+    writeln!(
+        out,
+        "- LLVM's libc++, libc++_shared.so (Android only), with the LLVM exception",
+    )?;
+    writeln!(out, "\n{}", APACHE_2_0.trim_end())?;
+    divider(out)?;
+    let (encoding_rs_copyright, bsd_3_clause) = BSD_3_CLAUSE.split_once("\n\n").unwrap();
+    writeln!(
+        out,
+        "\nThe following are licensed under the BSD-3-Clause license:\n\n\
+         - data in encoding_rs (Rust library):\n  {encoding_rs_copyright}\n\
+         - yuv2rgb, part of SDL 2:\n  Copyright (c) 2016, Adrien Descamps\n  \
+         All rights reserved.\n",
+    )?;
+    writeln!(out, "{}", bsd_3_clause.trim_end())?;
+    writeln!(out, "{YUV2RGB_CONDITION_3}")?;
+    divider(out)?;
+    writeln!(
+        out,
+        "\nThe Rust library unicode-ident also includes data under the following\n\
+         license (Unicode-3.0):\n",
+    )?;
+    writeln!(out, "{}", UNICODE_3_0.trim_end())?;
     divider(out)?;
     writeln!(out, "{MGBA_DESCRIPTION}")?;
     divider(out)?;
     writeln!(out, "{SDL2_DESCRIPTION}")?;
     writeln!(out, "{SDL2_LICENSE}")?;
+    writeln!(
+        out,
+        "SDL 2 also includes math functions under the following notice:\n\n{}\n",
+        SDL2_SUN_LIBM.trim_end(),
+    )?;
+    writeln!(
+        out,
+        "In Linux builds only, SDL 2 also includes X11 keyboard code under the\n\
+         following license:\n\n{}",
+        SDL2_X11_IMKSTOUCS.trim_end(),
+    )?;
     divider(out)?;
     writeln!(out, "{STB_IMAGE}")?;
     divider(out)?;
@@ -288,6 +386,17 @@ fn print(out: &mut String, resources_are_external_files: bool) -> Result<(), std
                 .trim_start()
         )?;
         writeln!(out, "{INTERNAL_FSF_DYLIBS_OFFER}")?;
+        writeln!(out, "{INTERNAL_FSF_DYLIBS_GPL_HEADING}")?;
+        // The GPL's full text, as plain text (it's quoted twice, in bold).
+        let readme = read_bundled_file(&format!("{}/README.md", crate::paths::DYLIBS_DIR));
+        let gpl = readme
+            .split_once("; a copy of the GPL is included below.")
+            .unwrap()
+            .1;
+        for line in gpl.trim_start_matches(['\n', '>', ' ']).lines() {
+            let line = line.trim_start_matches(['>', ' ']).replace("**", "");
+            writeln!(out, "{line}")?;
+        }
         divider(out)?;
         writeln!(out, "{INTERNAL_ZLIB_DYLIB_DESCRIPTION}")?;
         writeln!(
@@ -317,6 +426,13 @@ fn print(out: &mut String, resources_are_external_files: bool) -> Result<(), std
             out,
             "{}",
             read_bundled_file(&format!("{}/LICENSE.noto", crate::paths::FONTS_DIR))
+        )?;
+        divider(out)?;
+        writeln!(out, "{INTERNAL_CAVEATBRUSH_FONTS_DESCRIPTION}")?;
+        writeln!(
+            out,
+            "{}",
+            read_bundled_file(&format!("{}/LICENSE.caveatbrush", crate::paths::FONTS_DIR))
         )?;
     }
     Ok(())
@@ -350,5 +466,46 @@ fn test_internal_files_license_text() {
     let mut text = String::new();
     print(&mut text, /* resources_are_external_files: */ false).unwrap();
     assert!(text.contains(INTERNAL_FSF_DYLIBS_OFFER));
+    // The GPL's full text, not just the notice.
+    assert!(text.contains(INTERNAL_FSF_DYLIBS_GPL_HEADING));
+    assert!(text.contains("END OF TERMS AND CONDITIONS"));
     assert!(!text.contains(EXTERNAL_FILES_CAVEAT));
+    assert!(text.contains("the libxml2 license\nshown in this document"));
+    for holder in [
+        "WHATWG",
+        "Adrien Descamps",
+        "SunPro",
+        "Jamey Sharp",
+        "Kotlin",
+    ] {
+        assert!(text.contains(holder), "{holder}");
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn test_rust_dependency_licenses_covered() {
+    // Every Rust library's license must be one this text shows: MIT (as
+    // the only license or an option), MPL-2.0, Zlib, or one listed above.
+    for line in RUST_DEPENDENCIES.lines().filter(|l| l.starts_with("- ")) {
+        let name = line[2..].split(' ').next().unwrap();
+        let license = line.rsplit_once("licensed under ").unwrap().1;
+        let mut license = license.replace("AND Zlib", "");
+        for (extra_name, extra) in EXTRA_LICENSE_CRATES {
+            let and_extra = format!("AND {extra}");
+            if license.contains(&and_extra) {
+                assert_eq!(name, *extra_name, "{line}");
+                license = license.replace(&and_extra, "");
+            }
+        }
+        assert!(
+            !license.contains("AND"),
+            "license text not shown for: {line}"
+        );
+        let license = license.trim();
+        let covered = license.contains("MIT")
+            || matches!(license, "MPL-2.0" | "Zlib")
+            || (license == "Apache-2.0" && APACHE_ONLY_CRATES.contains(&name));
+        assert!(covered, "license text not shown for: {line}");
+    }
 }

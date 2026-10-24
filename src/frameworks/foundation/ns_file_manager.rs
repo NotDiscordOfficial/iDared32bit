@@ -9,7 +9,7 @@ use super::{ns_array, ns_string, NSUInteger};
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::frameworks::foundation::ns_error::{NSCocoaErrorDomain, NSFileReadNoSuchFileError};
 use crate::frameworks::foundation::ns_string::get_static_str;
-use crate::fs::{FsError, GuestPath, GuestPathBuf};
+use crate::fs::{FsError, FsNodeType, GuestPath, GuestPathBuf};
 use crate::mem::{ConstPtr, MutPtr, Ptr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, ClassExports, HostObject,
@@ -106,10 +106,81 @@ pub struct State {
     default_manager: Option<id>,
 }
 
+type NSDirectoryEnumerationOptions = NSUInteger;
+const NSDirectoryEnumerationSkipsSubdirectoryDescendants: NSDirectoryEnumerationOptions = 1;
+const NSDirectoryEnumerationSkipsPackageDescendants: NSDirectoryEnumerationOptions = 2;
+const NSDirectoryEnumerationSkipsHiddenFiles: NSDirectoryEnumerationOptions = 4;
+
+/// A directory being walked: its path relative to the enumerator's base, its
+/// entries (name, is it a directory) and the index of the next one.
+type WalkedDir = (String, Vec<(String, bool)>, usize);
+
+/// Walks a directory lazily, in name order, so `skipDescendents` can work.
 struct NSDirectoryEnumeratorHostObject {
-    iterator: std::vec::IntoIter<GuestPathBuf>,
+    base: GuestPathBuf,
+    stack: Vec<WalkedDir>,
+    /// The directory last returned, whose contents come next unless skipped.
+    pending_dir: Option<String>,
+    /// The path last returned, relative to `base`.
+    last: Option<String>,
+    options: NSDirectoryEnumerationOptions,
+    /// Return absolute `NSURL`s rather than relative paths.
+    as_urls: bool,
 }
 impl HostObject for NSDirectoryEnumeratorHostObject {}
+
+/// The entries of a directory, sorted by name as iPhone OS returns them.
+fn list_dir(
+    env: &Environment,
+    base: &GuestPath,
+    rel: &str,
+    options: NSDirectoryEnumerationOptions,
+) -> Vec<(String, bool)> {
+    let dir = if rel.is_empty() {
+        base.to_owned()
+    } else {
+        base.join(rel)
+    };
+    let Ok(entries) = env.fs.enumerate_with_types(&dir) else {
+        return Vec::new();
+    };
+    let mut entries: Vec<_> = entries
+        .filter(|(name, _)| {
+            options & NSDirectoryEnumerationSkipsHiddenFiles == 0 || !name.starts_with('.')
+        })
+        .map(|(name, kind)| (name.to_string(), matches!(kind, FsNodeType::Directory)))
+        .collect();
+    entries.sort();
+    entries
+}
+
+/// Directories that iPhone OS shows as a single file (bundles).
+fn is_package(name: &str) -> bool {
+    let ext = name.rsplit_once('.').map(|(_, ext)| ext);
+    matches!(ext, Some("app" | "bundle" | "framework" | "plugin"))
+}
+
+fn new_directory_enumerator(
+    env: &mut Environment,
+    base: GuestPathBuf,
+    options: NSDirectoryEnumerationOptions,
+    as_urls: bool,
+) -> id {
+    let entries = list_dir(env, &base, "", options);
+    let host_object = Box::new(NSDirectoryEnumeratorHostObject {
+        base,
+        stack: vec![(String::new(), entries, 0)],
+        pending_dir: None,
+        last: None,
+        options,
+        as_urls,
+    });
+    let class = env
+        .objc
+        .get_known_class("NSDirectoryEnumerator", &mut env.mem);
+    let enumerator = env.objc.alloc_object(class, host_object, &mut env.mem);
+    autorelease(env, enumerator)
+}
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -266,16 +337,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)enumeratorAtPath:(id)path { // NSString*
-    let path = ns_string::to_rust_string(env, path); // TODO: avoid copy
-    let Ok(paths) = env.fs.enumerate_recursive(GuestPath::new(&path)) else {
+    let path = GuestPathBuf::from(ns_string::to_rust_string(env, path).into_owned());
+    if !env.fs.is_dir(&path) {
         return nil;
-    };
-    let host_object = Box::new(NSDirectoryEnumeratorHostObject {
-        iterator: paths.into_iter(),
-    });
-    let class = env.objc.get_known_class("NSDirectoryEnumerator", &mut env.mem);
-    let enumerator = env.objc.alloc_object(class, host_object, &mut env.mem);
-    autorelease(env, enumerator)
+    }
+    new_directory_enumerator(env, path, 0, false)
+}
+
+- (id)enumeratorAtURL:(id)url // NSURL*
+includingPropertiesForKeys:(id)_keys // NSArray*, only prefetching
+                   options:(NSDirectoryEnumerationOptions)options
+              errorHandler:(id)error_handler { // block
+    let path: id = msg![env; url path];
+    let path = GuestPathBuf::from(ns_string::to_rust_string(env, path).into_owned());
+    // Like on iOS, a URL that isn't a directory gives an enumerator that
+    // returns nothing.
+    if !env.fs.is_dir(&path) && error_handler != nil {
+        log!("TODO: enumeratorAtURL: errorHandler not called for {:?}", path);
+    }
+    new_directory_enumerator(env, path, options, true)
 }
 
 - (id)directoryContentsAtPath:(id)path /* NSString* */ { // NSArray*
@@ -442,7 +522,74 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)nextObject {
     let host_obj = env.objc.borrow_mut::<NSDirectoryEnumeratorHostObject>(this);
-    host_obj.iterator.next().map_or(nil, |s| ns_string::from_rust_string(env, String::from(s)))
+    if let Some(dir) = host_obj.pending_dir.take() {
+        let (base, options) = (host_obj.base.clone(), host_obj.options);
+        let entries = list_dir(env, &base, &dir, options);
+        let host_obj = env.objc.borrow_mut::<NSDirectoryEnumeratorHostObject>(this);
+        host_obj.stack.push((dir, entries, 0));
+    }
+    let host_obj = env.objc.borrow_mut::<NSDirectoryEnumeratorHostObject>(this);
+    let rel = loop {
+        let Some((dir, entries, next)) = host_obj.stack.last_mut() else {
+            host_obj.last = None;
+            return nil;
+        };
+        let Some((name, is_dir)) = entries.get(*next) else {
+            host_obj.stack.pop();
+            continue;
+        };
+        *next += 1;
+        let rel = if dir.is_empty() {
+            name.clone()
+        } else {
+            format!("{dir}/{name}")
+        };
+        let options = host_obj.options;
+        if *is_dir
+            && options & NSDirectoryEnumerationSkipsSubdirectoryDescendants == 0
+            && (options & NSDirectoryEnumerationSkipsPackageDescendants == 0 || !is_package(name))
+        {
+            host_obj.pending_dir = Some(rel.clone());
+        }
+        break rel;
+    };
+    host_obj.last = Some(rel.clone());
+    if host_obj.as_urls {
+        let path = host_obj.base.join(&rel);
+        let path = ns_string::from_rust_string(env, String::from(path));
+        let path = autorelease(env, path);
+        msg_class![env; NSURL fileURLWithPath:path]
+    } else {
+        let rel = ns_string::from_rust_string(env, rel);
+        autorelease(env, rel)
+    }
+}
+
+// Not to be confused with skipDescendants (iOS 4), which does the same.
+- (())skipDescendents {
+    env.objc.borrow_mut::<NSDirectoryEnumeratorHostObject>(this).pending_dir = None;
+}
+- (())skipDescendants {
+    env.objc.borrow_mut::<NSDirectoryEnumeratorHostObject>(this).pending_dir = None;
+}
+
+- (NSUInteger)level {
+    let host_obj = env.objc.borrow::<NSDirectoryEnumeratorHostObject>(this);
+    host_obj.last.as_ref().map_or(0, |rel| rel.split('/').count() as NSUInteger)
+}
+
+- (id)fileAttributes {
+    let host_obj = env.objc.borrow::<NSDirectoryEnumeratorHostObject>(this);
+    let Some(rel) = &host_obj.last else {
+        return nil;
+    };
+    let path = host_obj.base.join(rel);
+    file_attributes_common(env, &path)
+}
+
+- (id)directoryAttributes {
+    let base = env.objc.borrow::<NSDirectoryEnumeratorHostObject>(this).base.clone();
+    file_attributes_common(env, &base)
 }
 
 @end

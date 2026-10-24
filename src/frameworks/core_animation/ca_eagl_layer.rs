@@ -68,9 +68,8 @@ pub fn find_fullscreen_eagl_layer(env: &mut Environment) -> id {
 
     let mut layer: id = msg![env; top_window layer];
 
-    // Descend through the hierarchy, looking only at the last layer in each
-    // list of children, since that should be the one on top.
-    // TODO: this is not correct once we support zPosition.
+    // Descend through the hierarchy, looking only at the layer on top in
+    // each list of children: the last one with the highest zPosition.
     loop {
         assert!(layer != nil);
 
@@ -96,7 +95,12 @@ pub fn find_fullscreen_eagl_layer(env: &mut Environment) -> id {
             return nil;
         }
 
-        if let Some(&next) = layer_host_obj.sublayers.last() {
+        let top = layer_host_obj.sublayers.iter().max_by(|&&a, &&b| {
+            let a = env.objc.borrow::<CALayerHostObject>(a).z_position;
+            let b = env.objc.borrow::<CALayerHostObject>(b).z_position;
+            a.total_cmp(&b)
+        });
+        if let Some(&next) = top {
             layer = next;
         } else {
             break;

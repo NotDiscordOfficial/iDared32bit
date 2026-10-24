@@ -33,6 +33,7 @@ pub mod ns_file_manager;
 pub mod ns_garbage_collector;
 pub mod ns_index_path;
 pub mod ns_invocation;
+pub mod ns_key_value_observing;
 pub mod ns_keyed_archiver;
 pub mod ns_keyed_unarchiver;
 pub mod ns_locale;
@@ -56,6 +57,7 @@ pub mod ns_thread;
 pub mod ns_time_zone;
 pub mod ns_timer;
 pub mod ns_url;
+pub mod ns_url_cache;
 pub mod ns_url_connection;
 pub mod ns_url_request;
 pub mod ns_user_defaults;
@@ -104,6 +106,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_timer::CLASSES,
         ns_time_zone::CLASSES,
         ns_url::CLASSES,
+        ns_url_cache::CLASSES,
         ns_url_connection::CLASSES,
         ns_url_request::CLASSES,
         ns_user_defaults::CLASSES,
@@ -114,6 +117,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_error::CONSTANTS,
         ns_exception::CONSTANTS,
         ns_file_manager::CONSTANTS,
+        ns_key_value_observing::CONSTANTS,
         ns_keyed_unarchiver::CONSTANTS,
         ns_locale::CONSTANTS,
         ns_run_loop::CONSTANTS,
@@ -131,6 +135,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
 pub struct State {
     ns_bundle: ns_bundle::State,
     ns_file_manager: ns_file_manager::State,
+    ns_key_value_observing: ns_key_value_observing::State,
     ns_locale: ns_locale::State,
     ns_notification_center: ns_notification_center::State,
     ns_null: ns_null::State,
@@ -138,6 +143,7 @@ pub struct State {
     ns_string: ns_string::State,
     ns_thread: ns_thread::State,
     ns_time_zone: ns_time_zone::State,
+    ns_url_cache: ns_url_cache::State,
     ns_user_defaults: ns_user_defaults::State,
 }
 

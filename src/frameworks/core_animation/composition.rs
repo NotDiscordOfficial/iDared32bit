@@ -459,8 +459,6 @@ unsafe fn composite_layer_recursive(
     cumulative_transform: Matrix<4>,
     opacity: CGFloat,
 ) {
-    // TODO: this can't handle zPosition among other things, but it is not
-    //       supported yet :)
     // TODO: back-to-front drawing is not efficient, could we use front-to-back?
 
     // This is both acting as the presentationLayer and the private render layer
@@ -577,7 +575,9 @@ unsafe fn composite_layer_recursive(
     let need_texture = host_obj.presented_pixels.is_some()
         || host_obj.contents != nil
         || host_obj.cg_context.is_some();
-    let need_update = need_texture && !host_obj.gles_texture_is_up_to_date;
+    let need_update = need_texture
+        && (!host_obj.gles_texture_is_up_to_date
+            || host_obj.contents != host_obj.gles_texture_contents);
 
     if need_texture {
         if let Some(texture) = host_obj.gles_texture {
@@ -630,10 +630,10 @@ unsafe fn composite_layer_recursive(
     }
 
     if need_update {
-        // Update original layer field
-        env.objc
-            .borrow_mut::<CALayerHostObject>(layer)
-            .gles_texture_is_up_to_date = true;
+        // Update original layer fields
+        let original_host_obj = env.objc.borrow_mut::<CALayerHostObject>(layer);
+        original_host_obj.gles_texture_is_up_to_date = true;
+        original_host_obj.gles_texture_contents = host_obj.contents;
     }
 
     // Draw texture, if any
@@ -663,7 +663,10 @@ unsafe fn composite_layer_recursive(
         };
 
         gles.Color4f(opacity, opacity, opacity, opacity);
-        if opacity == 1.0 && host_obj.opaque && !have_background {
+        // `opaque` doesn't affect images set as contents: their alpha
+        // channel is kept.
+        let opaque = host_obj.opaque && host_obj.contents == nil;
+        if opacity == 1.0 && opaque && !have_background {
             gles.Disable(gles11::BLEND);
         } else {
             gles.Enable(gles11::BLEND);
@@ -704,8 +707,19 @@ unsafe fn composite_layer_recursive(
     std::mem::drop(gles);
 
     // avoid holding mutable borrow while recursing
-    let original_host_obj = env.objc.borrow_mut::<CALayerHostObject>(layer);
-    for &child_layer in &original_host_obj.sublayers.clone() {
+    let mut sublayers = env
+        .objc
+        .borrow::<CALayerHostObject>(layer)
+        .sublayers
+        .clone();
+    // Higher zPosition is drawn on top. The sort is stable, so layers with
+    // the same zPosition keep their order.
+    sublayers.sort_by(|&a, &b| {
+        let a = env.objc.borrow::<CALayerHostObject>(a).z_position;
+        let b = env.objc.borrow::<CALayerHostObject>(b).z_position;
+        a.total_cmp(&b)
+    });
+    for &child_layer in &sublayers {
         // TODO: clipping/masksToBounds support
         composite_layer_recursive(
             env,

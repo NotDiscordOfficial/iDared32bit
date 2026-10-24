@@ -130,6 +130,113 @@ fn wav_to_pcm16<R: std::io::Read>(
     })
 }
 
+/// Symphonia can't read 8-bit linear PCM in CAF files, so convert it to
+/// 16-bit here. CAF's integer samples are always signed.
+fn caf_pcm8_to_pcm16(bytes: &[u8]) -> Option<symphonia_formats::SymphoniaDecodedToPcm> {
+    let u32_at = |at: usize| Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?));
+    if bytes.get(..4)? != b"caff" {
+        return None;
+    }
+    let mut desc = None;
+    let mut pos = 8;
+    while pos + 12 <= bytes.len() {
+        let chunk_type = &bytes[pos..pos + 4];
+        let size = i64::from_be_bytes(bytes[pos + 4..pos + 12].try_into().unwrap());
+        let start = pos + 12;
+        // A size of -1 means the chunk (always data) runs to the end.
+        let end = if size < 0 {
+            bytes.len()
+        } else {
+            start.checked_add(size.try_into().ok()?)?.min(bytes.len())
+        };
+        match chunk_type {
+            b"desc" => {
+                let rate = f64::from_bits(u64::from_be_bytes(
+                    bytes.get(start..start + 8)?.try_into().ok()?,
+                ));
+                let format_id = bytes.get(start + 8..start + 12)?;
+                let is_float = u32_at(start + 12)? & 1 != 0;
+                let channels = u32_at(start + 24)?;
+                let bits = u32_at(start + 28)?;
+                if format_id != b"lpcm" || is_float || bits != 8 || channels == 0 {
+                    return None;
+                }
+                desc = Some((rate, channels));
+            }
+            b"data" => {
+                let (rate, channels) = desc?;
+                // Skip the edit count.
+                let samples = bytes.get(start + 4..end)?;
+                return Some(symphonia_formats::SymphoniaDecodedToPcm {
+                    bytes: samples
+                        .iter()
+                        .flat_map(|&s| (i16::from(s as i8) << 8).to_le_bytes())
+                        .collect(),
+                    sample_rate: rate as u32,
+                    channels,
+                    compressed_format: None,
+                });
+            }
+            _ => (),
+        }
+        pos = end;
+    }
+    None
+}
+
+/// Reads linear PCM in AIFF files as 16-bit. Symphonia isn't used as it
+/// rejects files iOS plays, such as ones whose SSND chunk is shorter than
+/// COMM's frame count says (UConnect's sounds): the frames are read to the
+/// end of the file here instead.
+fn aiff_to_pcm16(bytes: &[u8]) -> Option<symphonia_formats::SymphoniaDecodedToPcm> {
+    let u32_at = |at: usize| Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?));
+    if bytes.get(..4)? != b"FORM" || bytes.get(8..12)? != b"AIFF" {
+        return None;
+    }
+    let (mut comm, mut data_start) = (None, None);
+    let mut pos = 12;
+    while pos + 8 <= bytes.len() {
+        let start = pos + 8;
+        match &bytes[pos..pos + 4] {
+            b"COMM" => {
+                let channels = u16::from_be_bytes(bytes.get(start..start + 2)?.try_into().ok()?);
+                let frames = u32_at(start + 2)?;
+                let bits = u16::from_be_bytes(bytes.get(start + 6..start + 8)?.try_into().ok()?);
+                // 80-bit extended float: 15-bit exponent, 64-bit mantissa.
+                let exp = u16::from_be_bytes(bytes.get(start + 8..start + 10)?.try_into().ok()?);
+                let mantissa =
+                    u64::from_be_bytes(bytes.get(start + 10..start + 18)?.try_into().ok()?);
+                let shift = (16383 + 63u32).checked_sub(u32::from(exp & 0x7fff))?;
+                let rate = mantissa.checked_shr(shift)?;
+                if channels == 0 || !(1..=32).contains(&bits) {
+                    return None;
+                }
+                comm = Some((channels, frames, bits, rate));
+            }
+            b"SSND" => data_start = Some(start + 8 + usize::try_from(u32_at(start)?).ok()?),
+            _ => (),
+        }
+        // Chunks are padded to an even size.
+        let size = usize::try_from(u32_at(pos + 4)?).ok()?;
+        pos = start.checked_add(size)?.checked_add(size & 1)?;
+    }
+    let (channels, frames, bits, rate) = comm?;
+    let width = usize::from(bits).div_ceil(8);
+    let len = usize::try_from(frames).ok()? * usize::from(channels) * width;
+    let samples = bytes.get(data_start?..)?;
+    let samples = &samples[..len.min(samples.len() / width * width)];
+    Some(symphonia_formats::SymphoniaDecodedToPcm {
+        // Samples are signed and big-endian: keep the top 16 bits.
+        bytes: samples
+            .chunks(width)
+            .flat_map(|s| [s.get(1).copied().unwrap_or(0), s[0]])
+            .collect(),
+        sample_rate: rate.try_into().ok()?,
+        channels: channels.into(),
+        compressed_format: None,
+    })
+}
+
 impl AudioFile {
     pub fn open_for_reading<P: AsRef<GuestPath>>(
         path: P,
@@ -178,6 +285,10 @@ impl AudioFile {
         // are immediately decoding the entire file to PCM and acting as if
         // it's a PCM file, simply because because this is easier. Full MP3
         // support would require a lot of changes in Audio Toolbox.
+        } else if let Some(pcm) = aiff_to_pcm16(&bytes) {
+            Ok(AudioFileInner::Symphonia(pcm))
+        } else if let Some(pcm) = caf_pcm8_to_pcm16(&bytes) {
+            Ok(AudioFileInner::Symphonia(pcm))
         } else if let Ok(pcm) = symphonia_formats::decode_symphonia_to_pcm(Cursor::new(bytes)) {
             Ok(AudioFileInner::Symphonia(pcm))
         } else {

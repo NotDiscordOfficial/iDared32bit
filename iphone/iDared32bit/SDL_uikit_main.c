@@ -19,11 +19,14 @@
 typedef char *(*idared_app_picker_fn)(const char *, const uint8_t *const *, size_t);
 extern char *idared_swiftui_app_picker(const char *, const uint8_t *const *, size_t);
 extern void idared_set_swiftui_app_picker(idared_app_picker_fn);
+/* Gives games opened with "Open in iDared 32bit" to the picker too. */
+extern void idared_install_open_in_hook(void);
 
 int
 main(int argc, char *argv[])
 {
     idared_set_swiftui_app_picker(idared_swiftui_app_picker);
+    idared_install_open_in_hook();
     return SDL_UIKitRunApp(argc, argv, SDL_main);
 }
 #endif /* !SDL_MAIN_HANDLED */

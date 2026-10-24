@@ -452,22 +452,20 @@ impl Environment {
 
         let mut mem = mem::Mem::new();
 
-        let is_spore = bundle.bundle_identifier().starts_with("com.ea.spore");
-        let is_critter_crunch = bundle
-            .bundle_identifier()
-            .starts_with("com.capybaragames.CritterCrunch")
-            || bundle
-                .bundle_identifier()
-                .starts_with("com.go.starwave.CritterCrunch");
-        // We always reset this flag depending on which game is launched.
-        mem.zero_memory_on_free = !is_spore && !is_critter_crunch;
-        if is_spore {
-            log!("Applying game-specific hack for Spore Origins: zeroing memory on alloc instead of free.");
-        }
-        if is_critter_crunch {
-            // Without this hack, every time a critter 'explodes',
-            // the game crashes with a null page access error.
-            log!("Applying game-specific hack for Critter Crunch: zeroing memory on alloc instead of free.");
+        // Games that read memory after freeing it, which works on a device
+        // because freeing doesn't clear it. (Critter Crunch crashes when a
+        // critter explodes; Hairball when a level starts.)
+        const KEEP_FREED_MEMORY: &[&str] = &[
+            "com.ea.spore",
+            "com.capybaragames.CritterCrunch",
+            "com.go.starwave.CritterCrunch",
+            "com.yourcompany.Hairball",
+        ];
+        let bundle_id = bundle.bundle_identifier();
+        let keep_freed_memory = KEEP_FREED_MEMORY.iter().any(|id| bundle_id.starts_with(id));
+        mem.zero_memory_on_free = !keep_freed_memory;
+        if keep_freed_memory {
+            log!("Applying game-specific hack: zeroing memory on alloc instead of free.");
         }
         let executable = mach_o::MachO::load_from_file(
             bundle.executable_path(),
@@ -2043,6 +2041,11 @@ impl Environment {
             .mem
             .alloc_and_write_cstr(self.fs.home_directory().as_str().as_bytes());
         self.env_vars.insert(b"HOME".to_vec(), home_value_cstr);
+
+        // The app's tmp folder. As on a device, it ends with a slash.
+        let tmp_dir = format!("{}/tmp/", self.fs.home_directory().as_str());
+        let tmp_value_cstr = self.mem.alloc_and_write_cstr(tmp_dir.as_bytes());
+        self.env_vars.insert(b"TMPDIR".to_vec(), tmp_value_cstr);
     }
 
     fn get_sorted_bin_indices(&self) -> Result<Vec<usize>, String> {

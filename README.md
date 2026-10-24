@@ -60,7 +60,11 @@ Not affiliated with or endorsed by the mGBA project, whose ARM interpreter iDare
 On iPhone and iPad, iDared 32bit has its own native app picker; other platforms use the built-in app picker inherited from touchHLE. If you put your `.ipa` files and `.app` bundles in the `Games` folder, they will show up in the app picker when you run iDared 32bit. Note that the app binary must not be encrypted to be usable.
 To access the `Games` folder, simply tap the “File manager” button in iDared 32bit.
 
+On iPhone and iPad, you can also tap “Import” in the app picker to copy `.ipa` files or `.app` folders into `Games` from the Files app, or share an `.ipa` file to iDared 32bit from another app (“Open in iDared 32bit”).
+
 To configure the options, you can edit the `Options.txt` file. To get a list of options, look in the `OPTIONS_HELP.txt` file.
+
+On iPhone and iPad, Settings in the app picker has the most common options (such as the scale hack, orientation and network access) for the game you launch next. They start at “Default” each time, which leaves `Options.txt` in charge; anything else you pick overrides `Options.txt` for that launch only. To make a setting permanent for a game, put it in `Options.txt`.
 
 Any data saved by the app (e.g. **saved games**) are stored in the `Saves` folder.
 
@@ -74,9 +78,9 @@ touchHLE © 2023–2026 touchHLE project contributors.
 
 iDared 32bit is based on touchHLE. Its source code, including touchHLE's and the modifications made to it here, is licensed under the Mozilla Public License 2.0 (MPL-2.0). The iDared 32bit name, logo and app icon are not; see below.
 
-**Distributed binaries are also licensed under the MPL-2.0. They are not licensed under the GNU General Public License (GPL).** Everything compiled into the executable is licensed under the MPL-2.0 or under more permissive terms; none of it is GPL-licensed.
+**Distributed binaries are also licensed under the MPL-2.0. iDared 32bit is not licensed under the GNU General Public License (GPL).** Its own code, and every library it is built from, is licensed under the MPL-2.0 or under more permissive terms. Separately, the app carries two GPL-licensed libraries, described below.
 
-The app carries copies of the libgcc and libstdc++ dynamic libraries from Apple's iPhone OS SDK (`dylibs/`), which apps running inside the emulated device link against. These are separate programs, licensed under the GNU GPL version 2 or later. They run only inside the emulated device, are not linked with iDared 32bit, and do not change its license. Their license notices, and a written offer for their source code, are included in the app's license information.
+The app carries copies of the libgcc and libstdc++ dynamic libraries from Apple's iPhone OS SDK (`dylibs/`), which apps running inside the emulated device link against. On iOS, these copies are embedded in the app's executable file, as data. They are separate programs, licensed under the GNU GPL version 2 or later. They run only inside the emulated device, are not linked with iDared 32bit, and do not change its license. Their license notices, the full text of the GPL, and a written offer for their source code, are included in the app's license information.
 
 Copyright, authorship, and license notices for touchHLE, mGBA, and bundled components are preserved in the source and available through the app's license information. See `LICENSE`, `src/licenses.rs`, and the applicable bundled-component directories for details.
 

@@ -757,9 +757,17 @@ pub fn decode_buffer(
                     assert!(processed_data.len().is_multiple_of(4));
                     let new_size = (processed_data.len() / 4) * 2; // size from 32-bit to 16-bit
                     let mut new_processed_data = Vec::<u8>::with_capacity(new_size);
+                    // Fixed point (e.g. 8.24, audio units' canonical format)
+                    // has 1.0 at 1 << fraction bits, integers at 1 << 31.
+                    let fraction_bits = (format.format_flags >> 7) & 0x3f;
+                    let shift = if fraction_bits == 0 {
+                        16
+                    } else {
+                        fraction_bits.saturating_sub(15)
+                    };
                     for chunk in processed_data.chunks(4) {
                         let val: i32 = i32::from_le_bytes(chunk.try_into().unwrap());
-                        let new_val: i16 = (val >> 16) as i16;
+                        let new_val = (val >> shift).clamp(i16::MIN.into(), i16::MAX.into()) as i16;
                         new_processed_data.extend(new_val.to_le_bytes());
                     }
                     return (

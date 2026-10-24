@@ -7,7 +7,7 @@
 
 use super::UIBarItemHostObject;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
-use crate::frameworks::foundation::ns_string::to_rust_string;
+use crate::frameworks::foundation::ns_string::{get_static_str, to_rust_string};
 use crate::frameworks::foundation::NSInteger;
 use crate::frameworks::uikit::ui_font::UITextAlignmentCenter;
 use crate::frameworks::uikit::ui_view::ui_control::UIControlEventTouchUpInside;
@@ -22,6 +22,7 @@ pub const UIBarButtonItemStyleBordered: UIBarButtonItemStyle = 1;
 pub const UIBarButtonItemStyleDone: UIBarButtonItemStyle = 2;
 
 pub type UIBarButtonSystemItem = NSInteger;
+pub const UIBarButtonSystemItemDone: UIBarButtonSystemItem = 0;
 pub const UIBarButtonSystemItemFlexibleSpace: UIBarButtonSystemItem = 5;
 pub const UIBarButtonSystemItemFixedSpace: UIBarButtonSystemItem = 6;
 
@@ -56,9 +57,11 @@ impl Default for UIBarButtonItemHostObject {
 }
 
 fn make_label(env: &mut crate::Environment, title: id) -> id {
-    let font: id = msg_class![env; UIFont systemFontOfSize:17_f32];
-    let title_color: id = msg_class![env; UIColor blackColor];
-    let item_bg_color: id = msg_class![env; UIColor whiteColor];
+    // As on iPhone OS 3: white bold text, drawn over the button background
+    // that UIToolbar draws.
+    let font: id = msg_class![env; UIFont boldSystemFontOfSize:12_f32];
+    let title_color: id = msg_class![env; UIColor whiteColor];
+    let item_bg_color: id = msg_class![env; UIColor clearColor];
     let init_frame = CGRect {
         origin: CGPoint { x: 0.0, y: 0.0 },
         size: CGSize {
@@ -73,8 +76,6 @@ fn make_label(env: &mut crate::Environment, title: id) -> id {
     () = msg![env; label setTextColor:title_color];
     () = msg![env; label setFont:font];
     () = msg![env; label setBackgroundColor:item_bg_color];
-    let layer: id = msg![env; label layer];
-    () = msg![env; layer setCornerRadius:(10.0 as CGFloat)];
     label
 }
 
@@ -177,21 +178,30 @@ pub const CLASSES: ClassExports = objc_classes! {
         action
     );
 
-    let label = if system_item == UIBarButtonSystemItemFlexibleSpace
-        || system_item == UIBarButtonSystemItemFixedSpace
-    {
-        nil
-    } else {
-        unimplemented!(
+    let (title, label, style) = match system_item {
+        UIBarButtonSystemItemDone => {
+            let title = get_static_str(env, "Done");
+            let label = make_label(env, title);
+            (title, label, UIBarButtonItemStyleDone)
+        }
+
+        UIBarButtonSystemItemFlexibleSpace
+        | UIBarButtonSystemItemFixedSpace => {
+            (nil, nil, UIBarButtonItemStylePlain)
+        }
+
+        _ => unimplemented!(
             "UIBarButtonSystemItem {} rendering not implemented",
             system_item
-        );
+        ),
     };
 
     let custom_view = make_custom_view(env, label, target, action);
 
     {
         let host = env.objc.borrow_mut::<UIBarButtonItemHostObject>(this);
+        host.superclass.title = title;
+        host.style = style;
         host.system_item = Some(system_item);
         host.target = target;
         host.action = Some(action);
@@ -199,6 +209,9 @@ pub const CLASSES: ClassExports = objc_classes! {
         host.label = label;
     }
 
+    if title != nil {
+        retain(env, title);
+    }
     if target != nil {
         retain(env, target);
     }
@@ -266,8 +279,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     let custom_view = host.custom_view;
     if label != nil {
         let label_size: CGSize = msg![env; label sizeThatFits:size];
+        // 10pt either side of the title, as on iPhone OS 3.
         CGSize {
-            width: label_size.width + 16.0,
+            width: label_size.width + 20.0,
             height: size.height,
         }
     } else if custom_view != nil {

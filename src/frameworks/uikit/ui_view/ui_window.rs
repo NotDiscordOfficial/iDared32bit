@@ -69,11 +69,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSCoding implementation
 - (id)initWithCoder:(id)coder {
+    // Unlike windows made in code, a nib's window is only hidden if the nib
+    // says so (UIHidden), which Interface Builder does unless it's "Visible
+    // at Launch". Some games never make their window visible themselves.
     let this = msg_super![env; this initWithCoder:coder];
-    // Undocumented: windows seem to be hidden by default on iOS, unlike views.
-    // Super call to bypass the overriden setter on this class, which would post
-    // a notification.
-    () = msg_super![env; this setHidden:true];
 
     let state = &mut env.framework_state.uikit.ui_view.ui_window;
     state.windows.push(this);

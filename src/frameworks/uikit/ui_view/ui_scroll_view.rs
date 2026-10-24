@@ -5,13 +5,16 @@
  */
 //! `UIScrollView`.
 
+pub mod ui_table_view;
 pub mod ui_text_view;
-use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
+use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::NSInteger;
+use crate::frameworks::uikit::ui_geometry::UIEdgeInsets;
 use crate::objc::{
-    id, impl_HostObject_with_superclass, msg, nil, objc_classes, todo_objc_setter, ClassExports,
-    NSZonePtr, SEL,
+    id, impl_HostObject_with_superclass, msg, msg_send, nil, objc_classes, todo_objc_setter,
+    ClassExports, NSZonePtr, SEL,
 };
+use crate::Environment;
 
 type UIScrollViewIndicatorStyle = NSInteger;
 
@@ -87,6 +90,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     todo_objc_setter!(this, value);
 }
 
+- (())setContentInset:(UIEdgeInsets)insets {
+    todo_objc_setter!(this, insets);
+}
+
 - (())setScrollsToTop:(bool)value {
     todo_objc_setter!(this, value);
 }
@@ -103,6 +110,39 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; this setNeedsDisplay];
 }
 
+// Scrolls as little as needed to show the rect. TODO: animate, rather than
+// jumping straight there.
+- (())scrollRectToVisible:(CGRect)rect animated:(bool)animated {
+    let bounds: CGRect = msg![env; this bounds];
+    let content_size: CGSize = msg![env; this contentSize];
+    let offset: CGPoint = msg![env; this contentOffset];
+    let scroll = |offset: CGFloat, start: CGFloat, length: CGFloat, view: CGFloat,
+                  content: CGFloat| {
+        let offset = if start < offset {
+            start
+        } else if start + length > offset + view {
+            (start + length - view).min(start)
+        } else {
+            offset
+        };
+        offset.min(content - view).max(0.0)
+    };
+    let new_offset = CGPoint {
+        x: scroll(offset.x, rect.origin.x, rect.size.width, bounds.size.width,
+                  content_size.width),
+        y: scroll(offset.y, rect.origin.y, rect.size.height, bounds.size.height,
+                  content_size.height),
+    };
+    if new_offset == offset {
+        return;
+    }
+    () = msg![env; this setContentOffset:new_offset];
+    tell_delegate(env, this, "scrollViewDidScroll:");
+    if animated {
+        tell_delegate(env, this, "scrollViewDidEndScrollingAnimation:");
+    }
+}
+
 - (CGSize)contentSize {
     env.objc.borrow::<UIScrollViewHostObject>(this).content_size
 }
@@ -112,6 +152,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setIndicatorStyle:(UIScrollViewIndicatorStyle)style {
     todo_objc_setter!(this, style);
+}
+
+- (bool)isClipsToBounds {
+    // TODO: Remove once clips to bounds is implemented properly
+    // and use "true" as the default value.
+    true
 }
 
 - (())touchesMoved:(id)touches // NSSet* of UITouch*
@@ -167,3 +213,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+/// Sends `selector` (taking the scroll view) to the delegate, if it has it.
+fn tell_delegate(env: &mut Environment, this: id, selector: &str) {
+    let delegate: id = msg![env; this delegate];
+    let sel = env
+        .objc
+        .register_host_selector(selector.to_string(), &mut env.mem);
+    let responds: bool = msg![env; delegate respondsToSelector:sel];
+    if responds {
+        () = msg_send(env, (delegate, sel, this));
+    }
+}

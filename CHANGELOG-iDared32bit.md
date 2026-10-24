@@ -2,6 +2,44 @@
 
 iDared 32bit is based on [touchHLE](https://touchhle.org/). This file lists only iDared 32bit's own changes. The touchHLE changes it includes are in [CHANGELOG.md](CHANGELOG.md), which is touchHLE's own changelog, kept exactly as it is upstream.
 
+## v1.5.0 (2026-10-23)
+
+Usability:
+
+- When a game opens a web page, it now opens on iPhone and iPad too, and iDared 32bit returns to the app picker instead of closing.
+- Toolbars in games look as they did on iPhone OS 3, with glossy bars and buttons, instead of plain white buttons.
+- On iPhone and iPad, the app picker's header background can be blue, black, purple, pink, green, orange or teal, and its text yellow, white, gray, black, purple, orange or teal, chosen in Theme Options.
+- The app picker's Quick Options button is now Settings: the same game options, plus a Theme Options page.
+- Settings can choose whether games made for both iPhone and iPad run their iPhone or iPad version.
+- Theme Options can hide the logo in the app picker's header, showing the name instead with a shorter header.
+- Theme Options can also hide the names under the games' icons, and give the footer the header's background color.
+- On iPhone and iPad, a wallpaper for the app picker can be chosen from Photos, in Theme Options.
+- On iPhone and iPad, games added or removed with File Manager now show up in the app picker as soon as you come back to it.
+- On iPhone and iPad, games can be imported with the new Import button in the app picker, or shared to iDared 32bit from other apps. The website link is now in Settings.
+- On iPhone, iPad and Android, games (`.ipa` files) put in the main folder instead of `Games` are moved into `Games` when the app picker opens, or on iPhone and iPad when you come back to it.
+
+Compatibility:
+
+- Fixed a crash in some games when loading their text.
+- Fixed missing music in some games that use 8-bit sound files.
+- Fixed a crash in some games that use AIFF sound files.
+- Fixed crashes in some games when starting their sound, and missing sound in some games.
+- Fixed a crash in some games when deleting text.
+- Fixed a crash on iPhone and iPad in some games after playing for a while.
+- Alerts in games are now shown, and their buttons work, fixing a crash in some games.
+- Fixed a crash in some games that watch for changes to their settings.
+- Fixed some games that look through folders of files, such as their saves.
+- Games now use the fonts they come with.
+- Fixed menus and screens in some games that stopped partway through their animations, didn't show their buttons, or stayed black.
+- Animated images in games now play.
+- Fixed a black screen at start-up in some games.
+- Various small fixes.
+
+Other:
+
+- On iPhone, iPad and Android, the license information now includes the full text of the GNU GPL, which the libgcc and libstdc++ libraries are licensed under.
+- The license information now includes the license texts of the Rust libraries and other code that iDared 32bit uses.
+
 ## v1.4.3 (2026-10-18)
 
 Usability:

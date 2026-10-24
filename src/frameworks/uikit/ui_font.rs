@@ -21,6 +21,10 @@ pub(super) struct State {
     fonts: HashMap<FontKind, Font>,
     sans_regular_ja: Option<Font>,
     sans_bold_ja: Option<Font>,
+    marker_felt: Option<Font>,
+    /// The names of the fonts the app bundles, in `fonts` as
+    /// [FontKind::App], or [None] if they're not loaded yet.
+    app_font_names: Option<Vec<Vec<String>>>,
 }
 impl State {
     fn get_font_by_kind(&mut self, font_kind: FontKind) -> &Font {
@@ -39,6 +43,8 @@ impl State {
                 FontKind::SerifBold => Font::serif_bold(),
                 FontKind::SerifBoldItalic => Font::serif_bold_italic(),
                 FontKind::SerifItalic => Font::serif_italic(),
+                FontKind::MarkerFelt => Font::marker_felt(),
+                FontKind::App(_) => unreachable!(),
             })
     }
 }
@@ -57,6 +63,9 @@ enum FontKind {
     SerifBold,
     SerifBoldItalic,
     SerifItalic,
+    MarkerFelt,
+    /// A font the app bundles, by its index in `UIAppFonts`.
+    App(usize),
 }
 
 struct UIFontHostObject {
@@ -137,7 +146,9 @@ pub const CLASSES: ClassExports = objc_classes! {
             size:(CGFloat)fontSize {
     let font_name = to_rust_string(env, fontName).to_string();
     let host_object = UIFontHostObject {
-        kind: get_equivalent_font(&font_name).unwrap_or_else(|| {
+        kind: get_app_font(env, &font_name).or_else(|| {
+            get_equivalent_font(&font_name)
+        }).unwrap_or_else(|| {
             log!("No replacement found for font {}. Using system font instead.", font_name);
             FontKind::SansRegular
         }),
@@ -145,6 +156,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
     let new = env.objc.alloc_object(this, Box::new(host_object), &mut env.mem);
     autorelease(env, new)
+}
+
+- (id)fontWithSize:(CGFloat)size {
+    let kind = env.objc.borrow::<UIFontHostObject>(this).kind;
+    let host_object = UIFontHostObject { size, kind };
+    let class = msg![env; this class];
+    let new = env.objc.alloc_object(class, Box::new(host_object), &mut env.mem);
+    autorelease(env, new)
+}
+
+- (CGFloat)pointSize {
+    let host_object = env.objc.borrow::<UIFontHostObject>(this);
+    host_object.size
 }
 
 - (CGFloat)ascender {
@@ -177,6 +201,33 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
+/// Find a font the app bundles by name, loading them if needed.
+fn get_app_font(env: &mut Environment, name: &str) -> Option<FontKind> {
+    if env.framework_state.uikit.ui_font.app_font_names.is_none() {
+        let mut all_names = Vec::new();
+        for (i, file) in env.bundle.app_fonts().into_iter().enumerate() {
+            let path = env.bundle.bundle_path().join(file);
+            let loaded = env.fs.read(&path).ok().and_then(Font::from_app_file);
+            let Some((font, names)) = loaded else {
+                log!("Warning: couldn't load app font {:?}", file);
+                all_names.push(Vec::new());
+                continue;
+            };
+            log_dbg!("Loaded app font {:?}, names {:?}", file, names);
+            let state = &mut env.framework_state.uikit.ui_font;
+            state.fonts.insert(FontKind::App(i), font);
+            all_names.push(names);
+        }
+        env.framework_state.uikit.ui_font.app_font_names = Some(all_names);
+    }
+    let all_names = env.framework_state.uikit.ui_font.app_font_names.as_ref();
+    all_names
+        .unwrap()
+        .iter()
+        .position(|names| names.iter().any(|n| n == name))
+        .map(FontKind::App)
+}
+
 fn convert_line_break_mode(ui_mode: UILineBreakMode) -> WrapMode {
     match ui_mode {
         UILineBreakModeWordWrap => WrapMode::Word,
@@ -204,7 +255,7 @@ fn get_font<'a>(state: &'a mut State, kind: FontKind, text: &str) -> &'a Font {
            (0x3400..=0x4DBF).contains(&c) { // more kanji
             match kind {
                 // CJK has no italic equivalent
-                FontKind::MonoRegular | FontKind::MonoItalic | FontKind::SansRegular | FontKind::SansItalic | FontKind::SerifRegular | FontKind::SerifItalic => {
+                FontKind::MonoRegular | FontKind::MonoItalic | FontKind::SansRegular | FontKind::SansItalic | FontKind::SerifRegular | FontKind::SerifItalic | FontKind::App(_) => {
                     if state.sans_regular_ja.is_none() {
                         state.sans_regular_ja = Some(Font::sans_regular_ja());
                     }
@@ -216,6 +267,12 @@ fn get_font<'a>(state: &'a mut State, kind: FontKind, text: &str) -> &'a Font {
                     }
                     return state.sans_bold_ja.as_ref().unwrap();
                 },
+                FontKind::MarkerFelt => {
+                    if state.marker_felt.is_none() {
+                        state.marker_felt = Some(Font::marker_felt());
+                    }
+                    return state.marker_felt.as_ref().unwrap();
+                }
             }
         }
     }
@@ -461,7 +518,9 @@ fn get_equivalent_font(system_font: &str) -> Option<FontKind> {
         "Helvetica" => None,
         "Helvetica-Bold" => None,
         // Font Family: Marker Felt
-        "MarkerFelt-Thin" => None,
+        "Marker Felt" => Some(FontKind::MarkerFelt),
+        "MarkerFelt-Thin" => Some(FontKind::MarkerFelt),
+        "MarkerFelt-Wide" => Some(FontKind::MarkerFelt),
         // Font Family: Helvetica Neue
         "HelveticaNeue" => None,
         "HelveticaNeue-Bold" => None,

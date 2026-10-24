@@ -61,6 +61,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+// Saves the shared defaults and lets them go, so the next
+// standardUserDefaults reads them again.
++ (())resetStandardUserDefaults {
+    if let Some(defaults) = State::get(env).standard_defaults.take() {
+        let _: bool = msg![env; defaults synchronize];
+        autorelease(env, defaults);
+    }
+}
+
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(NSUserDefaultsHostObject {
         global_domain_dict: nil,
@@ -141,7 +150,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Behaviour was confirmed on macOS.
     // Only app domain gets affected here (this part wasn't verified).
     let dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;
-    msg![env; dict setValue:val forKey:key]
+    () = msg![env; this willChangeValueForKey:key];
+    () = msg![env; dict setValue:val forKey:key];
+    msg![env; this didChangeValueForKey:key]
 }
 
 - (id)objectForKey:(id)key { // NSString*
@@ -178,13 +189,17 @@ pub const CLASSES: ClassExports = objc_classes! {
          forKey:(id)key { // NSString*
     // Only app domain gets affected!
     let dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;
-    msg![env; dict setObject:object forKey:key]
+    () = msg![env; this willChangeValueForKey:key];
+    () = msg![env; dict setObject:object forKey:key];
+    msg![env; this didChangeValueForKey:key]
 }
 
 - (())removeObjectForKey:(id)key {
     // Only app domain gets affected!
     let dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;
-    msg![env; dict removeObjectForKey:key]
+    () = msg![env; this willChangeValueForKey:key];
+    () = msg![env; dict removeObjectForKey:key];
+    msg![env; this didChangeValueForKey:key]
 }
 
 - (id)dataForKey:(id)key {

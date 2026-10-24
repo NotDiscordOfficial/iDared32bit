@@ -47,6 +47,8 @@ pub struct AudioComponentInstanceHostObject {
     pub output_stream_format: Option<AudioStreamBasicDescription>,
     pub render_callback: Option<AURenderCallbackStruct>,
     pub last_render_time: Option<Instant>,
+    /// For the render callback's timestamps.
+    pub frames_rendered: u64,
     pub al_source: Option<ALuint>,
     pub is_running_handler: bool,
 }
@@ -76,6 +78,7 @@ impl Default for AudioComponentInstanceHostObject {
             output_stream_format: None,
             render_callback: None,
             last_render_time: None,
+            frames_rendered: 0,
             al_source: None,
             is_running_handler: false,
         }
@@ -131,11 +134,12 @@ fn AudioComponentFindNext(
     let component_sub_type = audio_comp_descr.component_sub_type;
     let component_manufacturer = audio_comp_descr.component_manufacturer;
     // Only output is supported. VoiceProcessingIO is RemoteIO with echo
-    // cancellation for voice chat, so it's treated as RemoteIO.
+    // cancellation for voice chat, so it's treated as RemoteIO. A field of 0
+    // matches anything.
     let is_supported = component_type == kAudioUnitType_Output
         && (component_sub_type == kAudioUnitSubType_RemoteIO
             || component_sub_type == kAudioUnitSubType_VoiceProcessingIO)
-        && component_manufacturer == kAudioUnitManufacturer_Apple;
+        && matches!(component_manufacturer, 0 | kAudioUnitManufacturer_Apple);
     if !is_supported {
         // As on a device without such a component.
         log!(

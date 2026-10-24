@@ -49,6 +49,7 @@ pub(super) struct CALayerHostObject {
     pub(super) hidden: bool,
     pub(super) opaque: bool,
     pub(super) opacity: f32,
+    pub(super) z_position: CGFloat,
     pub(super) background_color: Option<CGColorHostObject>,
     pub(super) corner_radius: CGFloat,
     pub(super) needs_display: bool,
@@ -67,6 +68,9 @@ pub(super) struct CALayerHostObject {
     pub(super) gles_texture: Option<crate::gles::gles11_raw::types::GLuint>,
     /// Internal state for compositor
     pub(super) gles_texture_is_up_to_date: bool,
+    /// Internal state for compositor: the `contents` the texture was made
+    /// from, which an animation can change without `setContents:`.
+    pub(super) gles_texture_contents: id,
     pub(super) animations: HashMap<String, id>, // CAAnimation*
     pub(super) anonymous_animations: HashSet<id>, // CAAnimation*
 }
@@ -129,6 +133,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         hidden: false,
         opaque: false,
         opacity: 1.0,
+        z_position: 0.0,
         background_color: None, // transparency
         corner_radius: 0.0,
         needs_display: false,
@@ -143,6 +148,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         cg_context: None,
         gles_texture: None,
         gles_texture_is_up_to_date: false,
+        gles_texture_contents: nil,
         animations: HashMap::new(),
         anonymous_animations: HashSet::new(),
     });
@@ -365,6 +371,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setOpaque:(bool)opaque {
     env.objc.borrow_mut::<CALayerHostObject>(this).opaque = opaque;
+}
+
+- (CGFloat)zPosition {
+    env.objc.borrow::<CALayerHostObject>(this).z_position
+}
+- (())setZPosition:(CGFloat)z_position {
+    env.objc.borrow_mut::<CALayerHostObject>(this).z_position = z_position;
 }
 
 - (f32)opacity {
@@ -608,6 +621,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())addAnimation:(id)anim // CAAnimation*
             forKey:(id)key { // NSString*
+    // Like Core Animation, keep a copy, so the app can reuse the original.
+    let anim: id = msg![env; anim copy];
     let duration: CFTimeInterval = msg![env; anim duration];
     if duration == 0.0 {
         // From the docs:
@@ -626,9 +641,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else {
         let key_string = to_rust_string(env, key);
         log_dbg!("[(CALayer*){:?} addAnimation:{:?} forKey:{:?} ({:?})]", this, anim, key, key_string);
-        env.objc.borrow_mut::<CALayerHostObject>(this).animations.insert(key_string.to_string(), anim);
+        let host_obj = env.objc.borrow_mut::<CALayerHostObject>(this);
+        // An animation with the same key replaces the old one.
+        if let Some(old) = host_obj.animations.insert(key_string.to_string(), anim) {
+            release(env, old);
+        }
     }
-    retain(env, anim);
+}
+
+- (id)animationForKey:(id)key { // NSString*
+    let key_string = to_rust_string(env, key);
+    let host_obj = env.objc.borrow::<CALayerHostObject>(this);
+    host_obj.animations.get(&*key_string).copied().unwrap_or(nil)
 }
 
 - (())removeAnimationForKey:(id)key { // NSString*

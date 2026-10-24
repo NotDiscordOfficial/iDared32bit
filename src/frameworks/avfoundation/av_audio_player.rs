@@ -446,7 +446,8 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
             .borrow_mut::<AVAudioPlayerHostObject>(av_audio_player)
             .current_packet = current_packet + num_packets as i64;
     } else {
-        assert_eq!(status, eofErr);
+        // Reading compressed packets at the end gives no error.
+        assert!(status == 0 || status == eofErr);
         let number_of_loops = env
             .objc
             .borrow::<AVAudioPlayerHostObject>(av_audio_player)

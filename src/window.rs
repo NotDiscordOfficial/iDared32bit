@@ -2067,6 +2067,49 @@ pub fn open_url(env: &mut Environment, url: &str) -> Result<(), String> {
     env.on_parent_stack_in_coroutine(|_, _| sdl2::url::open_url(url).map_err(|e| e.to_string()))
 }
 
+impl Window {
+    /// Show a game's alert (`UIAlertView`) and wait for a button to be
+    /// tapped. Returns its index, or [None] if the alert was closed without
+    /// one (on desktop, the window's close button).
+    pub fn show_alert(
+        &self,
+        title: &str,
+        message: &str,
+        buttons: &[String],
+        cancel_button: Option<usize>,
+    ) -> Option<usize> {
+        use sdl2::messagebox;
+        let buttons: Vec<_> = buttons
+            .iter()
+            .enumerate()
+            .map(|(i, text)| messagebox::ButtonData {
+                flags: if Some(i) == cancel_button {
+                    messagebox::MessageBoxButtonFlag::ESCAPEKEY_DEFAULT
+                } else {
+                    messagebox::MessageBoxButtonFlag::NOTHING
+                },
+                button_id: i as i32,
+                text,
+            })
+            .collect();
+        match messagebox::show_message_box(
+            messagebox::MessageBoxFlag::INFORMATION,
+            &buttons,
+            title,
+            message,
+            &self.window,
+            None,
+        ) {
+            Ok(messagebox::ClickedButton::CustomButton(button)) => Some(button.button_id as usize),
+            Ok(messagebox::ClickedButton::CloseButton) => None,
+            Err(e) => {
+                log!("Warning: couldn't show alert {:?}: {}", title, e);
+                None
+            }
+        }
+    }
+}
+
 /// Why the last game couldn't start or crashed, for the iOS app picker to
 /// show. A messagebox can't be used there before the game has a window: it's
 /// never shown, and the app hangs.

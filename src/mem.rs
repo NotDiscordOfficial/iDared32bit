@@ -209,6 +209,12 @@ impl<T: SafeRead> SafeWrite for T {}
 
 type Bytes = [u8; 1 << 32];
 
+/// Readable memory reserved after the guest's 4 GiB. The main thread's stack
+/// is at the very top, so host OpenGL ES can read past it, e.g. a stale
+/// vertex array pointing at an old stack frame. On a device that memory is
+/// mapped and the values go unused, so here it reads as zeros.
+const HOST_SLACK_SIZE: usize = 1024 * 1024;
+
 pub const PAGE_SIZE: GuestUSize = 4096;
 pub const PAGE_SIZE_ALIGN_MASK: GuestUSize = 0xfff;
 
@@ -251,15 +257,19 @@ pub struct Mem {
     /// The flag to control if memory is zeroed out on free (`true`, default)
     /// or on alloc (`false`).
     ///
-    /// Right now only one game, Spore Origin, is setting this value to `false`
-    /// via a game-specific hack. See [crate::Environment] for more info.
+    /// A few games set this to `false` via a game-specific hack. See
+    /// [crate::Environment] for more info.
     pub(super) zero_memory_on_free: bool,
 }
 
 impl Drop for Mem {
     fn drop(&mut self) {
         unsafe {
-            crate::mem::host::free_memory(self.bytes.cast(), std::mem::size_of::<Bytes>()).unwrap();
+            crate::mem::host::free_memory(
+                self.bytes.cast(),
+                std::mem::size_of::<Bytes>() + HOST_SLACK_SIZE,
+            )
+            .unwrap();
         }
     }
 }
@@ -280,7 +290,7 @@ impl Mem {
 
     /// Create a fresh instance of guest memory.
     pub fn new() -> Mem {
-        let size = std::mem::size_of::<Bytes>();
+        let size = std::mem::size_of::<Bytes>() + HOST_SLACK_SIZE;
 
         let ptr = unsafe { crate::mem::host::allocate_memory(size) }.unwrap_or_else(|e| {
             panic!("Couldn't reserve 4 GiB of address space for the emulated device: {e}")

@@ -511,6 +511,12 @@ fn hypot(env: &mut Environment, arg1: f64, arg2: f64) -> f64 {
     }
     sqrt(env, arg1 * arg1 + arg2 * arg2)
 }
+fn hypotf(env: &mut Environment, arg1: f32, arg2: f32) -> f32 {
+    // TODO: handle errno properly
+    set_errno(env, 0);
+
+    arg1.hypot(arg2)
+}
 
 /// This alias is for readability, POSIX just uses `int`.
 type GuestFPCategory = i32;
@@ -617,5 +623,6 @@ pub const FUNCTIONS: FunctionExports = &[
     // Other
     export_c_func!(nan(_)),
     export_c_func!(hypot(_, _)),
+    export_c_func!(hypotf(_, _)),
     export_c_func!(__fpclassifyf(_)),
 ];

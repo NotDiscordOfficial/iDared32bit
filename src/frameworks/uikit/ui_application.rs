@@ -7,6 +7,8 @@
 
 use super::ui_device::*;
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
+use crate::frameworks::core_graphics::cg_geometry::CGRectZero;
+use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str};
 use crate::frameworks::foundation::{ns_array, ns_string, NSInteger, NSUInteger};
 use crate::mem::MutPtr;
@@ -157,20 +159,53 @@ pub const CLASSES: ClassExports = objc_classes! {
     todo_objc_setter!(this, visible);
 }
 
+- (CGRect)statusBarFrame {
+    if env.framework_state.uikit.ui_application.status_bar_hidden {
+        return CGRectZero;
+    }
+
+    // The frame is in screen coordinates, which are always portrait on
+    // iPhone OS, so in landscape the bar is a strip down one side.
+    let bar_height = 20.0;
+    let (width, height) = env.window.as_ref().unwrap().device_family().portrait_size();
+    let (width, height) = (width as f32, height as f32);
+    let current_rotation = env.window.as_ref().unwrap().current_rotation();
+
+    let (x, y, w, h) = match current_rotation {
+        DeviceOrientation::Portrait => (0.0, 0.0, width, bar_height),
+        DeviceOrientation::PortraitUpsideDown => (0.0, height - bar_height, width, bar_height),
+        // Home button on the right
+        DeviceOrientation::LandscapeLeft => (width - bar_height, 0.0, bar_height, height),
+        // Home button on the left
+        DeviceOrientation::LandscapeRight => (0.0, 0.0, bar_height, height),
+    };
+
+    CGRect {
+        origin: CGPoint { x, y },
+        size: CGSize { width: w, height: h },
+    }
+}
+
 - (bool)openURL:(id)url { // NSURL
+    // Already quitting: Super Monkey Ball keeps opening the URL every frame!
+    if env.return_to_app_picker {
+        return true;
+    }
     let ns_string = msg![env; url absoluteString];
     let url_string = ns_string::to_rust_string(env, ns_string);
     if let Err(e) = crate::window::open_url(env, &url_string) {
-        echo!("App opened URL {:?} unsuccessfully ({}), exiting.", url_string, e);
+        echo!("App opened URL {:?} unsuccessfully ({}), quitting.", url_string, e);
     } else {
-        echo!("App opened URL {:?}, exiting.", url_string);
+        echo!("App opened URL {:?}, quitting.", url_string);
     }
 
     // iPhone OS doesn't really do multitasking, so the app expects to close
-    // when a URL is opened, e.g. Super Monkey Ball keeps opening the URL every
-    // frame! Super Monkey Ball also doesn't check whether opening failed, so
-    // it's probably best to always exit.
-    exit(env);
+    // when a URL is opened. Super Monkey Ball doesn't check whether opening
+    // failed, so it's probably best to always quit. Return to the app picker
+    // rather than exiting: on iOS the URL is opened later, from the run loop,
+    // so exiting now would stop it from opening at all.
+    notify_will_terminate(env);
+    env.return_to_app_picker = true;
     true
 }
 
@@ -379,7 +414,7 @@ pub(super) fn UIApplicationMain(
     // See https://medium.com/geekculture/uiview-lifecycle-part-5-faa2d44511c9
     let views = env.framework_state.uikit.ui_view.views.clone();
     for view in views {
-        () = msg![env; view layoutSubviews];
+        () = msg![env; view layoutIfNeeded];
     }
 
     // Send applicationDidBecomeActive now that the application is ready to
