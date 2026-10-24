@@ -152,9 +152,7 @@ fn method_setImplementation(env: &mut Environment, method: MutPtr<method_t>, new
         .objc
         .method_handles
         .iter()
-        .find_map(|(&(class, selector), &handle)| {
-            (handle == method).then_some((class, selector))
-        })
+        .find_map(|(&(class, selector), &handle)| (handle == method).then_some((class, selector)))
         .expect("method_setImplementation requires a runtime Method handle");
 
     // Update dispatch as well as the Method handle; modifying only the
