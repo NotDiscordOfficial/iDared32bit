@@ -41,6 +41,15 @@ pub struct touchHLE_MgbaInstructionTrace {
     pub regs: [u32; 16],
 }
 
+/// One bounded snapshot of the guest registers immediately before a call.
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct touchHLE_MgbaCallTrace {
+    pub pc: u32,
+    pub regs: [u32; 16],
+}
+
 /// The FPSCR a thread starts with: flush-to-zero on, as iOS sets it (Apple's
 /// TN2293). Mirrors `TOUCHHLE_DEFAULT_FPSCR` in `wrapper.h`.
 pub const DEFAULT_FPSCR: u32 = 0x0100_0000;
@@ -103,6 +112,11 @@ extern "C" {
     pub fn touchHLE_MgbaWrapper_copy_recent_instruction_trace(
         cpu: *const touchHLE_MgbaWrapper,
         output: *mut touchHLE_MgbaInstructionTrace,
+        capacity: usize,
+    ) -> usize;
+    pub fn touchHLE_MgbaWrapper_copy_recent_call_trace(
+        cpu: *const touchHLE_MgbaWrapper,
+        output: *mut touchHLE_MgbaCallTrace,
         capacity: usize,
     ) -> usize;
     pub fn touchHLE_MgbaWrapper_invalidate_cache_range(

@@ -241,6 +241,26 @@ impl Cpu {
                     regs[14],
                 );
             }
+
+            let mut calls = [touchHLE_MgbaCallTrace::default(); 128];
+            let call_count = self.copy_recent_call_trace(&mut calls);
+            if call_count > 0 {
+                echo!("Recent guest call-site register snapshots (last 48 calls):");
+                for call in calls[call_count.saturating_sub(48)..call_count].iter() {
+                    let regs = &call.regs;
+                    echo!(
+                        "  PC {:#010x}: r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r12={:#010x} sp={:#010x} lr={:#010x}",
+                        call.pc,
+                        regs[0],
+                        regs[1],
+                        regs[2],
+                        regs[3],
+                        regs[12],
+                        regs[13],
+                        regs[14],
+                    );
+                }
+            }
         }
     }
 
@@ -257,6 +277,16 @@ impl Cpu {
     fn copy_recent_instruction_trace(&self, output: &mut [touchHLE_MgbaInstructionTrace]) -> usize {
         unsafe {
             touchHLE_MgbaWrapper_copy_recent_instruction_trace(
+                self.mgba_wrapper,
+                output.as_mut_ptr(),
+                output.len(),
+            )
+        }
+    }
+
+    fn copy_recent_call_trace(&self, output: &mut [touchHLE_MgbaCallTrace]) -> usize {
+        unsafe {
+            touchHLE_MgbaWrapper_copy_recent_call_trace(
                 self.mgba_wrapper,
                 output.as_mut_ptr(),
                 output.len(),
@@ -548,6 +578,34 @@ mod tests {
             CpuState::Svc(svc) => assert_eq!(svc, 0x123456),
             other => panic!("Expected an SVC halt, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn records_arm_call_site_registers() {
+        let mut mem = Mem::new();
+        let code_addr: VAddr = 0x1000;
+        let instructions = [
+            0xe3a0_0007, // mov r0, #7
+            0xeb00_0001, // bl 0x1010
+            0xef12_3456, // svc #0x123456
+            0xe1a0_0000, // nop
+            0xe12f_ff1e, // bx lr
+        ];
+        for (i, instruction) in instructions.iter().enumerate() {
+            let addr: MutPtr<u32> = Ptr::from_bits(code_addr + (i as u32) * 4);
+            mem.write(addr, *instruction);
+        }
+
+        let mut cpu = Cpu::new(None);
+        cpu.branch(GuestFunction::from_addr_and_thumb_flag(code_addr, false));
+        let mut ticks = 10u64;
+        cpu.run_or_step(&mut mem, Some(&mut ticks));
+
+        let mut calls = [touchHLE_MgbaCallTrace::default(); 4];
+        assert_eq!(cpu.copy_recent_call_trace(&mut calls), 1);
+        assert_eq!(calls[0].pc, code_addr + 4);
+        assert_eq!(calls[0].regs[0], 7);
+        assert_eq!(calls[0].regs[14], code_addr + 8);
     }
 
     /// An `svc` must halt before the core looks at whatever follows it, even

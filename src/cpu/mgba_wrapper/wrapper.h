@@ -63,6 +63,11 @@ struct touchHLE_MgbaInstructionTrace {
   uint32_t regs[16];
 };
 
+struct touchHLE_MgbaCallTrace {
+  uint32_t pc;
+  uint32_t regs[16];
+};
+
 struct touchHLE_MgbaWrapper {
   /* Must stay first: wrapper_of recovers the wrapper from the core. */
   struct ARMCore cpu;
@@ -110,6 +115,11 @@ struct touchHLE_MgbaWrapper {
   uint32_t recent_instruction_pcs_next;
   uint32_t recent_instruction_pcs_count;
   struct touchHLE_MgbaInstructionTrace recent_instruction_trace[512];
+  /* Bounded call-site history, kept separately so callers survive long guest
+   * startup paths in the instruction ring. */
+  struct touchHLE_MgbaCallTrace recent_call_trace[128];
+  uint32_t recent_call_trace_next;
+  uint32_t recent_call_trace_count;
 };
 
 static inline struct touchHLE_MgbaWrapper *wrapper_of(struct ARMCore *cpu) {
@@ -142,6 +152,9 @@ size_t touchHLE_MgbaWrapper_copy_recent_instruction_pcs(
 size_t touchHLE_MgbaWrapper_copy_recent_instruction_trace(
     const struct touchHLE_MgbaWrapper *w,
     struct touchHLE_MgbaInstructionTrace *output, size_t capacity);
+size_t touchHLE_MgbaWrapper_copy_recent_call_trace(
+    const struct touchHLE_MgbaWrapper *w,
+    struct touchHLE_MgbaCallTrace *output, size_t capacity);
 
 /* src/cpu/mgba_wrapper/vfp.c */
 void touchHLE_vfp_reset(struct touchHLE_Vfp *vfp);
