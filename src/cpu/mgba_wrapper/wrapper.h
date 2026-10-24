@@ -98,7 +98,8 @@ struct touchHLE_MgbaWrapper {
    * MCR or MRC. */
   uint32_t unknown_cp15_opcode;
 
-  /* Bounded guest PC history for crash diagnostics; entries include the Thumb bit. */
+  /* Bounded guest PC history for crash diagnostics. Entries include the Thumb
+   * bit. */
   uint32_t recent_instruction_pcs[64];
   uint32_t recent_instruction_pcs_next;
   uint32_t recent_instruction_pcs_count;
