@@ -71,7 +71,7 @@ def main() -> int:
         if panic:
             status, reason = "FAIL", f"Emulator panic: {panic.group(0)}"
         elif not has_cpu:
-            status, reason = "BLOCKED", "Guest CPU execution not reached; check macOS graphics/host setup"
+            status, reason = "BLOCKED", "Guest CPU execution not reached; check graphics/host setup"
         elif return_code not in (0, None) and not timed_out:
             status, reason = "FAIL", f"Process exited with code {return_code}"
         else:

@@ -1,6 +1,6 @@
 name: Lint, test and Crafted smoke
 
-# Linux preflight always runs first. Private macOS smoke is a dependent job,
+# Linux preflight always runs first. Private Linux smoke is a dependent job,
 # only on trusted runtime-changing pushes or an explicit manual request.
 # Full Windows/macOS/Android checks are manually selected, not automatic.
 # The expensive unsigned IPA builder remains a separate manual workflow.
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       run_crafted_smoke:
-        description: 'Run private Crafted runtime smoke on macOS'
+        description: 'Run private Crafted runtime smoke on Linux'
         type: boolean
         required: false
         default: false
@@ -251,7 +251,7 @@ jobs:
         CMAKE: ${{ github.workspace }}/vendor/cmake/bin/cmake
 
   crafted-runtime:
-    name: Private Crafted 1.0.1/1.0.2 smoke (macOS)
+    name: Private Crafted 1.0.1/1.0.2 smoke (Linux)
     needs: preflight-linux
     # Never expose fixture credentials to pull requests, even from this fork.
     if: >-
@@ -266,7 +266,7 @@ jobs:
            inputs.run_crafted_smoke == true)
         )
       }}
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
       CARGO_TERM_COLOR: always
@@ -282,21 +282,28 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
 
+      - name: Install Linux graphics and audio dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            libasound2-dev libgl1-mesa-dev libgl1-mesa-dri libglx-mesa0 \
+            libudev-dev libx11-dev libxcursor-dev libxinerama-dev libxrandr-dev \
+            libxss-dev libxi-dev pkg-config xvfb
+
       - name: Install compatible CMake
         shell: bash
         run: |
           set -euo pipefail
           curl -fLsS --retry 3 \
-            "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-macos-universal.tar.gz" \
+            "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz" \
             -o "$RUNNER_TEMP/cmake.tar.gz"
           mkdir -p "$RUNNER_TEMP/cmake-install"
-          tar -xzf "$RUNNER_TEMP/cmake.tar.gz" -C "$RUNNER_TEMP/cmake-install"
-          cmake_bin="$RUNNER_TEMP/cmake-install/cmake-3.31.6-macos-universal/CMake.app/Contents/bin"
-          echo "$cmake_bin" >> "$GITHUB_PATH"
-          echo "CMAKE=$cmake_bin/cmake" >> "$GITHUB_ENV"
+          tar -xzf "$RUNNER_TEMP/cmake.tar.gz" -C "$RUNNER_TEMP/cmake-install" --strip-components=1
+          echo "$RUNNER_TEMP/cmake-install/bin" >> "$GITHUB_PATH"
+          echo "CMAKE=$RUNNER_TEMP/cmake-install/bin/cmake" >> "$GITHUB_ENV"
 
-      - name: Build macOS desktop emulator
-        run: cargo build --release --bin touchHLE
+      - name: Build Linux desktop emulator
+        run: cargo build --locked --release --bin touchHLE
 
       - name: Fetch private, unmodified test games
         shell: bash
@@ -324,7 +331,7 @@ jobs:
               --proto '=https' --proto-redir '=https' --max-time 180 \
               --output "$RUNNER_TEMP/crafted-games.zip" "$CRAFTED_TEST_ARCHIVE_URL"
             if [ -n "$CRAFTED_TEST_ARCHIVE_SHA256" ]; then
-              printf '%s  %s\n' "$CRAFTED_TEST_ARCHIVE_SHA256" "$RUNNER_TEMP/crafted-games.zip" | shasum -a 256 -c -
+              printf '%s  %s\n' "$CRAFTED_TEST_ARCHIVE_SHA256" "$RUNNER_TEMP/crafted-games.zip" | sha256sum -c -
             fi
             unzip -q "$RUNNER_TEMP/crafted-games.zip" -d "$RUNNER_TEMP/crafted-games"
           else
@@ -360,11 +367,12 @@ jobs:
       - name: Exercise the desktop emulator with each guest IPA
         shell: bash
         run: |
-          python3 .github/scripts/crafted-smoke.py \
-            --emulator target/release/touchHLE \
-            --games "$RUNNER_TEMP/crafted-games" \
-            --logs "$RUNNER_TEMP/crafted-logs" \
-            --seconds 30
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
+            python3 .github/scripts/crafted-smoke.py \
+              --emulator target/release/touchHLE \
+              --games "$RUNNER_TEMP/crafted-games" \
+              --logs "$RUNNER_TEMP/crafted-logs" \
+              --seconds 30
 
       - name: Save emulator logs (never the game IPAs)
         if: always()
