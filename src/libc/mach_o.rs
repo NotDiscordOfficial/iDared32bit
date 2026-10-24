@@ -7,8 +7,8 @@
 
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::mem::{ConstPtr, GuestUSize, MutPtr, Ptr, SafeRead};
-use std::collections::HashMap;
 use crate::Environment;
+use std::collections::HashMap;
 
 /// The 32-bit guest layout of struct NXArchInfo in <mach-o/arch.h>.
 /// Pointers refer to guest strings, not host process addresses.
@@ -34,7 +34,11 @@ fn arm_architecture(cputype: i32, subtype: i32) -> Option<(&'static str, &'stati
     if cputype != 12 {
         return None;
     }
-    let subtype = if subtype == -1 { 0 } else { subtype & 0x00ff_ffff };
+    let subtype = if subtype == -1 {
+        0
+    } else {
+        subtype & 0x00ff_ffff
+    };
     let (name, description) = match subtype {
         0 => ("arm", "ARM"),
         5 => ("armv4t", "ARM v4t"),
@@ -156,7 +160,10 @@ mod tests {
     fn architecture_lookup_matches_32_bit_armv7_abi() {
         assert_eq!(std::mem::size_of::<NXArchInfo>(), 20);
         assert_eq!(arm_architecture(12, 9), Some(("armv7", "ARM v7", 9)));
-        assert_eq!(arm_architecture(12, 0x0100_0009), Some(("armv7", "ARM v7", 9)));
+        assert_eq!(
+            arm_architecture(12, 0x0100_0009),
+            Some(("armv7", "ARM v7", 9))
+        );
         assert_eq!(arm_architecture(12, -1), Some(("arm", "ARM", 0)));
         assert!(arm_architecture(7, 9).is_none());
         assert!(arm_architecture(12, 31).is_none());
