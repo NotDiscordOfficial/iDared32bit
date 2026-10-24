@@ -215,7 +215,8 @@ impl Cpu {
             for entry in trace[trace_count.saturating_sub(16)..trace_count].iter() {
                 let regs = &entry.regs;
                 let instruction = if entry.pc & 1 == 0 {
-                    Self::disassemble_arm(entry.opcode).unwrap_or_else(|| "unknown ARM instruction".into())
+                    Self::disassemble_arm(entry.opcode)
+                        .unwrap_or_else(|| "unknown ARM instruction".into())
                 } else {
                     Self::disassemble_thumb(entry.opcode as u16)
                 };
@@ -294,7 +295,12 @@ impl Cpu {
             let offset = opcode & 0xfff;
             let sign = if add { "" } else { "-" };
             let suffix = if byte { "b" } else { "" };
-            let mnemonic = format!("{}{}{}", if load { "ldr" } else { "str" }, suffix, cond_suffix);
+            let mnemonic = format!(
+                "{}{}{}",
+                if load { "ldr" } else { "str" },
+                suffix,
+                cond_suffix
+            );
             let operand = if offset == 0 {
                 format!("r{rd}, [r{rn}]")
             } else {
