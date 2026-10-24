@@ -36,6 +36,17 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y clang-format
       - name: Check formatting
         run: dev-scripts/format.sh --check
+      - name: Install compatible CMake 3.31.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 \
+            "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz" \
+            -o "$RUNNER_TEMP/cmake.tar.gz"
+          mkdir -p "$RUNNER_TEMP/cmake"
+          tar -xzf "$RUNNER_TEMP/cmake.tar.gz" -C "$RUNNER_TEMP/cmake" --strip-components=1
+          echo "$RUNNER_TEMP/cmake/bin" >> "$GITHUB_PATH"
+          echo "CMAKE=$RUNNER_TEMP/cmake/bin/cmake" >> "$GITHUB_ENV"
       - name: Compile emulator on Linux
         run: cargo check --locked --bin touchHLE
       - name: Rust unit tests
