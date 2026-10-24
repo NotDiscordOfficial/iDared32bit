@@ -81,9 +81,9 @@ impl ObjC {
 
     /// Resolve an ABI selector pointer back to its interned name for traces.
     pub(crate) fn selector_name_for_pointer(&self, address: u32) -> Option<&str> {
-        self.selectors.iter().find_map(|(name, selector)| {
-            (selector.0.to_bits() == address).then_some(name.as_str())
-        })
+        self.selectors
+            .iter()
+            .find_map(|(name, selector)| (selector.0.to_bits() == address).then_some(name.as_str()))
     }
 
     /// Register a selector using a Rust [String]. Despite the name there is no
