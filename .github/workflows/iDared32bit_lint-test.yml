@@ -1,8 +1,8 @@
 name: Lint and test
 
-# Slimmed-down CI for the iDared 32bit fork: formatting, lint (clippy) and the
-# test suite only. This fork does not build or publish desktop/Android binary
-# artifacts (its release is the iOS app), so no build/bundle/upload steps.
+# Cheap Linux checks on every push/PR. Expensive Windows, macOS and Android
+# platform testing is opt-in via workflow_dispatch. The Crafted smoke workflow
+# is gated on successful Linux push checks.
 
 on:
   push:
@@ -19,7 +19,31 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  preflight-linux:
+    name: Format, compile and unit test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt
+      - name: Install clang-format
+        run: sudo apt-get update -qq && sudo apt-get install -y clang-format
+      - name: Check formatting
+        run: dev-scripts/format.sh --check
+      - name: Compile emulator on Linux
+        run: cargo check --locked --bin touchHLE
+      - name: Rust unit tests
+        run: cargo test --locked --lib
+
   lint-and-test-macos:
+    needs: preflight-linux
+    if: github.event_name == 'workflow_dispatch'
 
     runs-on: macos-15
 
@@ -75,6 +99,8 @@ jobs:
         run: cc tests/TestApp_source/cli_tests.m tests/TestApp_source/CGAffineTransform.c tests/TestApp_source/SyncTester.m tests/TestApp_source/RespondsToSelector.m tests/TestApp_source/CraftedCompat.m tests/TestApp_source/AutoReleasePoolTest.m tests/TestApp_source/Initialize.m -framework CoreFoundation -framework Foundation -framework CoreGraphics -DDEFINE_ME_WHEN_BUILDING_ON_MACOS -DTestApp_cli_tests_main=main -ObjC && ./a.out
 
   lint-and-test-win:
+    needs: preflight-linux
+    if: github.event_name == 'workflow_dispatch'
 
     runs-on: windows-2022
 
@@ -127,6 +153,8 @@ jobs:
         CMAKE: ${{ github.workspace }}\vendor\cmake\bin\cmake
 
   lint-android:
+    needs: preflight-linux
+    if: github.event_name == 'workflow_dispatch'
 
     runs-on: ubuntu-latest
 

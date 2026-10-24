@@ -157,8 +157,8 @@ fn method_setImplementation(env: &mut Environment, method: MutPtr<method_t>, new
 
     // Update dispatch as well as the Method handle; modifying only the
     // handle would leave subsequent objc_msgSend calls using the old IMP.
-    env.objc
-        .borrow_mut(class)
+    let class_object: &mut ClassHostObject = env.objc.borrow_mut(class);
+    class_object
         .methods
         .insert(selector, IMP::Guest(new_guest_imp));
     let mut value = env.mem.read(method);

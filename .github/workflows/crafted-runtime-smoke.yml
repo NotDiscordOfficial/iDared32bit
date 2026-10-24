@@ -7,16 +7,13 @@ name: Crafted private runtime smoke tests
 # assets are the two distinct, unmodified Crafted IPA files (1.0.1 and 1.0.2).
 # Legacy fallback: CRAFTED_TEST_ARCHIVE_URL secret for a private ZIP of IPAs.
 # No IPA is committed, written to the public repository, or uploaded as an artifact.
+# Run only after the cheap Linux preflight succeeds on our own branch.
+# Never grant private fixture credentials to untrusted pull_request code.
 on:
-  push:
+  workflow_run:
+    workflows: ["Lint and test"]
+    types: [completed]
     branches: [idared32bit]
-    paths:
-      - 'src/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'vendor/**'
-      - '.github/scripts/crafted-smoke.py'
-      - '.github/workflows/crafted-runtime-smoke.yml'
   workflow_dispatch:
 
 permissions:
@@ -28,7 +25,13 @@ concurrency:
 
 jobs:
   crafted-runtime:
-    if: ${{ vars.CRAFTED_SMOKE_ENABLED == 'true' }}
+    if: >-
+      ${{ vars.CRAFTED_SMOKE_ENABLED == 'true' &&
+          (github.event_name == 'workflow_dispatch' ||
+            (github.event.workflow_run.conclusion == 'success' &&
+             github.event.workflow_run.event == 'push' &&
+             github.event.workflow_run.head_branch == 'idared32bit' &&
+             github.event.workflow_run.head_repository.full_name == github.repository)) }}
     runs-on: macos-15
     timeout-minutes: 90
     env:
@@ -36,9 +39,10 @@ jobs:
       CRAFTED_TEST_ARCHIVE_SHA256: ${{ secrets.CRAFTED_TEST_ARCHIVE_SHA256 }}
       CARGO_TERM_COLOR: always
     steps:
-      - name: Check out emulator and SDL submodules
+      - name: Check out validated emulator commit and SDL submodules
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           submodules: recursive
 
       - name: Install Rust toolchain

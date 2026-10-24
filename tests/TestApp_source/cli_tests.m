@@ -52,15 +52,15 @@ extern kern_return_t thread_info(mach_port_t target_act, natural_t flavor,
 
 // Declare test functions from other files.
 
-int test_AutoreleasePool(void);         // AutoReleasePoolTest.m
-int test_CGAffineTransform(void);       // CGAffineTransform.c
-int test_RespondsToSelector(void);      // RespondsToSelector.m
-int test_class_getInstanceMethod(void); // RespondsToSelector.m
-int test_class_getClassMethod(void);    // RespondsToSelector.m
+int test_AutoreleasePool(void);          // AutoReleasePoolTest.m
+int test_CGAffineTransform(void);        // CGAffineTransform.c
+int test_RespondsToSelector(void);       // RespondsToSelector.m
+int test_class_getInstanceMethod(void);  // RespondsToSelector.m
+int test_class_getClassMethod(void);     // RespondsToSelector.m
 int test_method_setImplementation(void); // RespondsToSelector.m
-int test_CraftedCompatCFArray(void);    // CraftedCompat.m
-int test_CraftedCompatNSDataURL(void);  // CraftedCompat.m
-int test_Initialize(void);              // Initialize.m
+int test_CraftedCompatCFArray(void);     // CraftedCompat.m
+int test_CraftedCompatNSDataURL(void);   // CraftedCompat.m
+int test_Initialize(void);               // Initialize.m
 
 #ifndef DEFINE_ME_WHEN_BUILDING_ON_MACOS
 int test_cpp_virtual_inheritance(void); // CppVirtualInheritance.cpp
