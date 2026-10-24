@@ -308,6 +308,29 @@ fn generate_binary_load_order(graph: &[BinaryDependencyNode]) -> Result<Vec<usiz
 static ENVIRONMENT_INSTANCE_EXISTS: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+fn nearest_guest_symbol(symbols: &HashMap<String, u32>, pc: u32) -> Option<(&str, u32)> {
+    let pc = pc & !1;
+    symbols
+        .iter()
+        .filter_map(|(name, symbol_pc)| {
+            let symbol_pc = symbol_pc & !1;
+            let distance = pc.checked_sub(symbol_pc)?;
+            if distance > 0x100000
+                || name.len() > 128
+                || !name.is_ascii()
+                || name.bytes().any(|byte| byte.is_ascii_control())
+            {
+                return None;
+            }
+            Some((name.as_str(), distance))
+        })
+        .min_by(|(name_a, distance_a), (name_b, distance_b)| {
+            distance_a
+                .cmp(distance_b)
+                .then_with(|| name_a.cmp(name_b))
+        })
+}
+
 impl Environment {
     /// Loads the binary and sets up the emulator.
     pub fn new(
@@ -1061,6 +1084,22 @@ impl Environment {
         }
     }
 
+    fn echo_symbol_for_pc(&self, pc: u32) {
+        let address = pc & !1;
+        for bin in &self.bins {
+            let Some(text_base) = bin.text_segment_base else {
+                continue;
+            };
+            if !(text_base <= address && address < bin.last_segment_end) {
+                continue;
+            }
+            if let Some((name, offset)) = nearest_guest_symbol(&bin.exported_symbols, pc) {
+                echo_no_panic!("    symbol: {}+{:#x}", name, offset);
+            }
+            return;
+        }
+    }
+
     fn stack_trace_for_thread(&self, tid: usize) {
         if tid >= self.threads.len() {
             echo_no_panic!(
@@ -1088,6 +1127,7 @@ impl Environment {
         let thumb = (cpsr & cpu::Cpu::CPSR_THUMB) == cpu::Cpu::CPSR_THUMB;
         let pc = GuestFunction::from_addr_and_thumb_flag(pc_nothumb, thumb);
         echo_no_panic!(" 0. {:#x} (PC)", pc.addr_with_thumb_bit());
+        self.echo_symbol_for_pc(pc.addr_with_thumb_bit());
         let mut lr = regs[cpu::Cpu::LR];
         let return_to_host_routine_addr = self.dyld.return_to_host_routine().addr_with_thumb_bit();
         let thread_exit_routine_addr = self.dyld.thread_exit_routine().addr_with_thumb_bit();
@@ -1098,6 +1138,7 @@ impl Environment {
             return;
         } else {
             echo_no_panic!(" 1. {:#x} (LR)", lr);
+            self.echo_symbol_for_pc(lr);
         }
         let mut i = 2;
         let mut fp: mem::ConstPtr<u8> = mem::Ptr::from_bits(regs[abi::FRAME_POINTER]);
@@ -1115,6 +1156,7 @@ impl Environment {
                 return;
             } else {
                 echo_no_panic!("{:2}. {:#x}", i, lr);
+                self.echo_symbol_for_pc(lr);
             }
             i += 1;
         }
@@ -2402,5 +2444,32 @@ mod dylib_sorting_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod guest_symbol_trace_tests {
+    use super::nearest_guest_symbol;
+    use std::collections::HashMap;
+
+    #[test]
+    fn nearest_guest_symbol_handles_thumb_addresses_and_offsets() {
+        let symbols = HashMap::from([
+            ("_first".to_string(), 0x1001),
+            ("_second".to_string(), 0x1100),
+        ]);
+
+        assert_eq!(nearest_guest_symbol(&symbols, 0x1109), Some(("_second", 8)));
+    }
+
+    #[test]
+    fn nearest_guest_symbol_ignores_future_and_distant_symbols() {
+        let symbols = HashMap::from([
+            ("_future".to_string(), 0x2001),
+            ("_distant".to_string(), 0x1000),
+        ]);
+
+        assert_eq!(nearest_guest_symbol(&symbols, 0x100), None);
+        assert_eq!(nearest_guest_symbol(&symbols, 0x2000), Some(("_distant", 0x1000)));
     }
 }
