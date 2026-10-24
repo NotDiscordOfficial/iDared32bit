@@ -59,7 +59,7 @@ jobs:
           set -euo pipefail
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             echo 'smoke_needed=true' >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "$BASE_SHA" "$GITHUB_SHA" | grep -Eq '^(src/|vendor/|Cargo\.toml$|Cargo\.lock$|build\.rs$|\.github/scripts/crafted-smoke\.py$)'; then
+          elif git diff --name-only "$BASE_SHA" "$GITHUB_SHA" | grep -Eq '^(src/|vendor/|Cargo\.toml$|Cargo\.lock$|build\.rs$|\.github/scripts/crafted-smoke\.py$|\.github/workflows/iDared32bit_lint-test\.yml$)'; then
             echo 'smoke_needed=true' >> "$GITHUB_OUTPUT"
           else
             echo 'smoke_needed=false' >> "$GITHUB_OUTPUT"
