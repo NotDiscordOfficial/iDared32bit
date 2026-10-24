@@ -1117,7 +1117,10 @@ mod tests {
     fn cf_dictionary_callback_structs_are_independently_optional() {
         let mut env = Environment::new_fake_for_test();
 
-        let key_memory = env.mem.vm_alloc(Some(0x1000_0000), crate::mem::PAGE_SIZE).unwrap();
+        let key_memory = env
+            .mem
+            .vm_alloc(Some(0x1000_0000), crate::mem::PAGE_SIZE)
+            .unwrap();
         let key_ptr: MutPtr<CFDictionaryKeyCallBacks> = key_memory.cast();
         env.mem.write(
             key_ptr,
@@ -1128,7 +1131,10 @@ mod tests {
         );
         let key_ptr = key_ptr.cast_const();
 
-        let value_memory = env.mem.vm_alloc(Some(0x1000_1000), crate::mem::PAGE_SIZE).unwrap();
+        let value_memory = env
+            .mem
+            .vm_alloc(Some(0x1000_1000), crate::mem::PAGE_SIZE)
+            .unwrap();
         let value_ptr: MutPtr<CFDictionaryValueCallBacks> = value_memory.cast();
         env.mem.write(
             value_ptr,

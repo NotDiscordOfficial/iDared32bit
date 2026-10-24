@@ -412,7 +412,10 @@ mod tests {
         let mut recent_pcs = [0; 4];
         let count = cpu.copy_recent_instruction_pcs(&mut recent_pcs);
         assert_eq!(count, 4);
-        assert_eq!(recent_pcs, [code_addr, code_addr + 4, code_addr + 8, code_addr + 12]);
+        assert_eq!(
+            recent_pcs,
+            [code_addr, code_addr + 4, code_addr + 8, code_addr + 12]
+        );
         match state {
             CpuState::Svc(svc) => assert_eq!(svc, 0x123456),
             other => panic!("Expected an SVC halt, got {other:?}"),
