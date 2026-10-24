@@ -20,6 +20,31 @@ struct NSTimeZoneHostObject {
 }
 impl HostObject for NSTimeZoneHostObject {}
 
+/// NSTimeZoneNameStyle values from Foundation (iOS 2+).
+fn localized_gmt_name(style: NSInteger) -> Option<&'static str> {
+    match style {
+        0 | 2 | 4 => Some("Greenwich Mean Time"),
+        1 | 3 | 5 => Some("GMT"),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gmt_localized_name_styles() {
+        for style in [0, 2, 4] {
+            assert_eq!(localized_gmt_name(style), Some("Greenwich Mean Time"));
+        }
+        for style in [1, 3, 5] {
+            assert_eq!(localized_gmt_name(style), Some("GMT"));
+        }
+        assert_eq!(localized_gmt_name(6), None);
+    }
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -83,6 +108,23 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)abbreviation {
     // TODO: support zone abbreviations
     ns_string::get_static_str(env, "GMT")
+}
+
+- (id)localizedName:(NSInteger)style locale:(id)_locale {
+    // The emulator currently exposes only GMT/UTC timezone behavior.
+    // Name styles 0/2/4 are long; 1/3/5 are abbreviated.
+    let name = env.objc.borrow::<NSTimeZoneHostObject>(this).time_zone;
+    let zone = ns_string::to_rust_string(env, name).into_owned();
+    if zone == "GMT" || zone == "UTC" || zone == "Etc/GMT" {
+        let Some(localized) = localized_gmt_name(style) else {
+            return nil;
+        };
+        ns_string::get_static_str(env, localized)
+    } else {
+        // For other zones, preserve their name instead of inventing a
+        // localized display name without time-zone/locale data.
+        name
+    }
 }
 
 - (NSInteger)secondsFromGMT {
