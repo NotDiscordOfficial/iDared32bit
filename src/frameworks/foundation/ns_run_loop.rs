@@ -584,6 +584,7 @@ fn run_loop_for_thread(env: &mut Environment, this: Class, thread_id: ThreadId) 
     {
         let host_object = Box::new(NSRunLoopHostObject {
             audio_units: Vec::new(),
+            reachability_sources: Vec::new(),
             audio_queues: Vec::new(),
             selector_objects: VecDeque::new(),
             timers: Vec::new(),

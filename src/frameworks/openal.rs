@@ -993,11 +993,7 @@ fn alcGetIntegerv(
         log!("alcGetIntegerv: invalid device, output buffer or size");
         return;
     }
-    let (frequency, refresh) = env
-        .openal_manager
-        .as_ref()
-        .map(|manager| manager.output_frequency_and_refresh())
-        .unwrap_or((44100, 43));
+    let (frequency, refresh) = env.openal_manager.output_frequency_and_refresh();
     let Some(result) = alc_integer_query(param, frequency, refresh) else {
         log!("alcGetIntegerv: unsupported parameter {param:#x}");
         return;
@@ -1011,7 +1007,7 @@ fn alcGetIntegerv(
         return;
     }
     for (index, value) in result.into_iter().enumerate() {
-        env.mem.write(values + index, value);
+        env.mem.write(values + index as u32, value);
     }
 }
 fn alcIsExtensionPresent(
