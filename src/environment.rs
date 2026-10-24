@@ -1063,6 +1063,28 @@ impl Environment {
                 );
             }
         }
+        let objc_call_sites: Vec<_> = call_sites
+            .iter()
+            .rev()
+            .take(128)
+            .rev()
+            .filter_map(|(pc, target, regs)| {
+                let selector = self.objc.selector_name_for_pointer(regs[1])?;
+                let target_symbol = self
+                    .guest_symbol_for_pc(*target)
+                    .map(|(name, offset)| format!("{name}+{offset:#x}"))
+                    .unwrap_or_else(|| "unknown".to_owned());
+                Some((*pc, *target, regs[0], selector.to_owned(), target_symbol))
+            })
+            .collect();
+        if !objc_call_sites.is_empty() {
+            echo_no_panic!("Recent guest calls with resolved Objective-C selectors:");
+            for (pc, target, receiver, selector, target_symbol) in objc_call_sites {
+                echo_no_panic!(
+                    "  {pc:#010x} -> {target:#010x} ({target_symbol}): receiver={receiver:#010x} selector={selector}"
+                );
+            }
+        }
         for (tid, thread) in self.threads.iter().enumerate() {
             if thread.is_alive() && tid != self.current_thread {
                 echo_no_panic!(

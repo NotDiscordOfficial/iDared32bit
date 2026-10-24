@@ -79,6 +79,13 @@ impl ObjC {
         self.selectors.get(name).copied()
     }
 
+    /// Resolve an ABI selector pointer back to its interned name for traces.
+    pub(crate) fn selector_name_for_pointer(&self, address: u32) -> Option<&str> {
+        self.selectors.iter().find_map(|(name, selector)| {
+            (selector.0.to_bits() == address).then_some(name.as_str())
+        })
+    }
+
     /// Register a selector using a Rust [String]. Despite the name there is no
     /// inherent "host" quality of the resulting selector, but because this
     /// function will allocate a new C string, this function is not the most
@@ -277,6 +284,26 @@ impl ObjC {
             writeln!(file, "}}{comma}")?;
         }
         write!(file, "    ]\n}}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_known_selector_pointers_for_traces() {
+        let mut objc = ObjC::new();
+        objc.selectors.insert(
+            "addOperation:toQueue:finishedTarget:action:".into(),
+            SEL(Ptr::from_bits(0x1234)),
+        );
+
+        assert_eq!(
+            objc.selector_name_for_pointer(0x1234),
+            Some("addOperation:toQueue:finishedTarget:action:")
+        );
+        assert_eq!(objc.selector_name_for_pointer(0x5678), None);
     }
 }
 
