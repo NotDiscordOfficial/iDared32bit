@@ -7,6 +7,7 @@
 
 use super::ui_device::*;
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
+use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str};
 use crate::frameworks::foundation::{ns_array, ns_string, NSInteger, NSUInteger};
 use crate::mem::MutPtr;
@@ -95,6 +96,36 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (bool)isStatusBarHidden {
     env.framework_state.uikit.ui_application.status_bar_hidden
+}
+- (CGRect)statusBarFrame {
+    if env.framework_state.uikit.ui_application.status_bar_hidden {
+        return CGRect::default();
+    }
+
+    let screen: id = msg_class![env; UIScreen mainScreen];
+    let bounds: CGRect = msg![env; screen bounds];
+    let orientation: UIInterfaceOrientation = msg![env; this statusBarOrientation];
+    const STATUS_BAR_HEIGHT: f32 = 20.0;
+
+    match orientation {
+        UIInterfaceOrientationPortrait => CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize { width: bounds.size.width, height: STATUS_BAR_HEIGHT },
+        },
+        UIInterfaceOrientationPortraitUpsideDown => CGRect {
+            origin: CGPoint { x: 0.0, y: bounds.size.height - STATUS_BAR_HEIGHT },
+            size: CGSize { width: bounds.size.width, height: STATUS_BAR_HEIGHT },
+        },
+        UIInterfaceOrientationLandscapeLeft => CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize { width: STATUS_BAR_HEIGHT, height: bounds.size.width },
+        },
+        UIInterfaceOrientationLandscapeRight => CGRect {
+            origin: CGPoint { x: bounds.size.height - STATUS_BAR_HEIGHT, y: 0.0 },
+            size: CGSize { width: STATUS_BAR_HEIGHT, height: bounds.size.width },
+        },
+        _ => CGRect::default(),
+    }
 }
 - (())setStatusBarHidden:(bool)hidden {
     env.framework_state.uikit.ui_application.status_bar_hidden = hidden;

@@ -6100,6 +6100,23 @@ int test_NSMethodSignature() {
   return 0;
 }
 
+int test_UIApplication_statusBarFrame() {
+  UIApplication *application = [[UIApplication alloc] init];
+  CGRect frame = [application statusBarFrame];
+  if (frame.size.width != 20.0 && frame.size.height != 20.0) {
+    return -1;
+  }
+
+  [application setStatusBarHidden:YES];
+  frame = [application statusBarFrame];
+  if (frame.origin.x != 0.0 || frame.origin.y != 0.0 ||
+      frame.size.width != 0.0 || frame.size.height != 0.0) {
+    return -2;
+  }
+
+  return 0;
+}
+
 int test_NSInvocation() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
 
@@ -7244,6 +7261,7 @@ struct {
     FUNC_DEF(test_malloc_zone_struct_dispatch),
     FUNC_DEF(test_fcvt),
     FUNC_DEF(test_tempfile),
+    FUNC_DEF(test_UIApplication_statusBarFrame),
 };
 // clang-format on
 

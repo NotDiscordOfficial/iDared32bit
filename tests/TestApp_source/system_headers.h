@@ -532,6 +532,9 @@ typedef enum {
 @interface UIApplication : NSObject
 + (instancetype)sharedApplication;
 - (id)delegate;
+- (CGRect)statusBarFrame;
+- (BOOL)isStatusBarHidden;
+- (void)setStatusBarHidden:(BOOL)hidden;
 @end
 @interface UIScreen : NSObject
 + (instancetype)mainScreen;
