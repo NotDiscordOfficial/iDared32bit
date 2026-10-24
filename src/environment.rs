@@ -1058,7 +1058,9 @@ impl Environment {
         if !symbolized_call_sites.is_empty() {
             echo_no_panic!("Recent symbolized guest call sites (last 128 calls):");
             for (pc, target, name, offset, target_symbol) in symbolized_call_sites {
-                echo_no_panic!("  {pc:#010x} ({name}+{offset:#x}) -> {target:#010x} ({target_symbol})");
+                echo_no_panic!(
+                    "  {pc:#010x} ({name}+{offset:#x}) -> {target:#010x} ({target_symbol})"
+                );
             }
         }
         for (tid, thread) in self.threads.iter().enumerate() {
