@@ -1,10 +1,13 @@
 name: Build unsigned iOS IPA
 
-# Run this from your fork's Actions tab. It does not publish a Release.
+# Opt-in only: macOS iOS builds are expensive and should not run on every push.
+# This workflow does not publish a Release.
 on:
   workflow_dispatch:
-  push:
-    branches: [idared32bit]
+
+concurrency:
+  group: unsigned-ipa-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

@@ -10,6 +10,13 @@ name: Crafted private runtime smoke tests
 on:
   push:
     branches: [idared32bit]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'vendor/**'
+      - '.github/scripts/crafted-smoke.py'
+      - '.github/workflows/crafted-runtime-smoke.yml'
   workflow_dispatch:
 
 permissions:

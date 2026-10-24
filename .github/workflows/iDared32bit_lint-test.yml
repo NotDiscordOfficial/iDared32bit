@@ -11,6 +11,10 @@ on:
     branches: [ "idared32bit" ]
   workflow_dispatch:
 
+concurrency:
+  group: lint-test-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 

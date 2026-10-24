@@ -91,6 +91,40 @@ int test_class_getInstanceMethod(void) {
   return 0;
 }
 
+static int replacement_answer(id instance, SEL selector) {
+  (void)instance;
+  (void)selector;
+  return 99;
+}
+
+int test_method_setImplementation(void) {
+  TestClass *instance = [TestClass new];
+  Method method = class_getInstanceMethod([TestClass class], @selector(answer));
+  if (method == 0) {
+    [instance release];
+    return -1;
+  }
+
+  TestMethodIMP original =
+      method_setImplementation(method, (TestMethodIMP)replacement_answer);
+  int result = 0;
+  if ([instance answer] != 99) {
+    result = -2;
+  } else if ((TestMethodIMP)test_method_imp(method) !=
+             (TestMethodIMP)replacement_answer) {
+    result = -3;
+  }
+
+  TestMethodIMP replacement = method_setImplementation(method, original);
+  if (result == 0 && replacement != (TestMethodIMP)replacement_answer) {
+    result = -4;
+  } else if (result == 0 && [instance answer] != 42) {
+    result = -5;
+  }
+  [instance release];
+  return result;
+}
+
 int test_class_getClassMethod(void) {
   SEL class_sel =
       NSSelectorFromString([NSString stringWithUTF8String:"classAnswer"]);

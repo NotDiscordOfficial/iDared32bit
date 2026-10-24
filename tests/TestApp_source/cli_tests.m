@@ -57,6 +57,7 @@ int test_CGAffineTransform(void);       // CGAffineTransform.c
 int test_RespondsToSelector(void);      // RespondsToSelector.m
 int test_class_getInstanceMethod(void); // RespondsToSelector.m
 int test_class_getClassMethod(void);    // RespondsToSelector.m
+int test_method_setImplementation(void); // RespondsToSelector.m
 int test_CraftedCompatCFArray(void);    // CraftedCompat.m
 int test_CraftedCompatNSDataURL(void);  // CraftedCompat.m
 int test_Initialize(void);              // Initialize.m
@@ -7206,6 +7207,7 @@ struct {
     FUNC_DEF(test_RespondsToSelector),
     FUNC_DEF(test_class_getInstanceMethod),
     FUNC_DEF(test_class_getClassMethod),
+    FUNC_DEF(test_method_setImplementation),
     FUNC_DEF(test_CraftedCompatCFArray),
     FUNC_DEF(test_CraftedCompatNSDataURL),
     FUNC_DEF(test_NSKeyedArchiver_encodeIntForKey),

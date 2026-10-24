@@ -135,6 +135,40 @@ fn method_getImplementation(env: &mut Environment, method: MutPtr<method_t>) -> 
     IMP::Guest(env.mem.read(method).imp)
 }
 
+/// Replace a guest-visible method implementation and return its previous IMP.
+/// Method handles are created and cached by class_getInstanceMethod (or
+/// class_getClassMethod, which resolves to the owning metaclass).
+fn method_setImplementation(env: &mut Environment, method: MutPtr<method_t>, new_imp: IMP) -> IMP {
+    if method.is_null() {
+        return IMP::guest_null();
+    }
+
+    let IMP::Guest(new_guest_imp) = new_imp else {
+        unreachable!("guest callers cannot provide a host IMP");
+    };
+    let old_imp = env.mem.read(method).imp;
+
+    let (class, selector) = env
+        .objc
+        .method_handles
+        .iter()
+        .find_map(|(&(class, selector), &handle)| {
+            (handle == method).then_some((class, selector))
+        })
+        .expect("method_setImplementation requires a runtime Method handle");
+
+    // Update dispatch as well as the Method handle; modifying only the
+    // handle would leave subsequent objc_msgSend calls using the old IMP.
+    env.objc
+        .borrow_mut(class)
+        .methods
+        .insert(selector, IMP::Guest(new_guest_imp));
+    let mut value = env.mem.read(method);
+    value.imp = new_guest_imp;
+    env.mem.write(method, value);
+    IMP::Guest(old_imp)
+}
+
 pub const DYLIB: HostDylib = HostDylib {
     path: "/usr/lib/libobjc.A.dylib",
     aliases: &["/usr/lib/libobjc.dylib"],
@@ -173,6 +207,7 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(class_getClassMethod(_, _)),
     export_c_func!(class_getInstanceMethod(_, _)),
     export_c_func!(method_getImplementation(_)),
+    export_c_func!(method_setImplementation(_, _)),
     export_c_func!(class_getMethodImplementation(_, _)),
     export_c_func!(class_replaceMethod(_, _, _, _)),
     export_c_func!(objc_msgSend(_, _)),
