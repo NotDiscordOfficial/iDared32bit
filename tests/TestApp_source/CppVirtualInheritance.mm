@@ -38,7 +38,9 @@ struct VirtualMember {
 @end
 
 @implementation ObjectWithCppIvar
-- (int)memberValue { return member.getValue(); }
+- (int)memberValue {
+  return member.getValue();
+}
 @end
 
 extern "C" int test_cpp_virtual_inheritance(void);
