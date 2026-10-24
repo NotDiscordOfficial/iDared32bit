@@ -94,6 +94,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, bundle)
 }
 
++ (id)mainBundle {
+    if let Some(bundle) = env.framework_state.foundation.ns_bundle.main_bundle {
+        bundle
+    } else {
+        let new = msg_class![env; _touchHLE_NSBundle_Static alloc];
+        env.framework_state.foundation.ns_bundle.main_bundle = Some(new);
+        new
+   }
+}
+
++ (id)preferredLocalizationsFromArray:(id)localizations_array { // NSArray<NSString *> *
+    let preferredLocalizations = CFBundleCopyPreferredLocalizationsFromArray(env, localizations_array);
+    autorelease(env, preferredLocalizations)
+}
+
 - (id)initWithPath:(id)path {
     if path == nil {
         release(env, this);
@@ -112,21 +127,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     );
     release(env, old);
     this
-}
-
-+ (id)mainBundle {
-    if let Some(bundle) = env.framework_state.foundation.ns_bundle.main_bundle {
-        bundle
-    } else {
-        let new = msg_class![env; _touchHLE_NSBundle_Static alloc];
-        env.framework_state.foundation.ns_bundle.main_bundle = Some(new);
-        new
-   }
-}
-
-+ (id)preferredLocalizationsFromArray:(id)localizations_array { // NSArray<NSString *> *
-    let preferredLocalizations = CFBundleCopyPreferredLocalizationsFromArray(env, localizations_array);
-    autorelease(env, preferredLocalizations)
 }
 
 - (())dealloc {
