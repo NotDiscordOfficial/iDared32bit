@@ -106,7 +106,9 @@ fn CFDictionaryGetKeysAndValues(
     keys: ConstPtr<MutVoidPtr>,
     values: ConstPtr<MutVoidPtr>,
 ) {
-    () = msg![env; dict getCFKeys:keys.cast_mut() values:values.cast_mut()];
+    let keys = keys.cast_mut();
+    let values = values.cast_mut();
+    () = msg![env; dict getCFKeys:keys values:values];
 }
 
 // Default CFDictionary callbacks
