@@ -6,11 +6,11 @@
 //! SCNetworkReachability
 
 use crate::abi::{CallFromHost, GuestFunction};
-use crate::frameworks::core_foundation::cf_run_loop::{CFRunLoopMode, CFRunLoopRef};
-use crate::frameworks::foundation::ns_run_loop;
 use crate::dyld::{export_c_func, FunctionExports};
 use crate::frameworks::core_foundation::cf_allocator::{kCFAllocatorDefault, CFAllocatorRef};
+use crate::frameworks::core_foundation::cf_run_loop::{CFRunLoopMode, CFRunLoopRef};
 use crate::frameworks::core_foundation::CFTypeRef;
+use crate::frameworks::foundation::ns_run_loop;
 use crate::libc::sys::socket::sockaddr;
 use crate::mem::{ConstPtr, MutPtr, MutVoidPtr, Ptr};
 use crate::objc::{msg, objc_classes, Class, ClassExports, HostObject};
@@ -154,12 +154,17 @@ fn SCNetworkReachabilityGetFlags(
     false
 }
 
-
-fn reachability_flags(env: &mut Environment, target: SCNetworkReachabilityRef) -> SCNetworkReachabilityFlags {
+fn reachability_flags(
+    env: &mut Environment,
+    target: SCNetworkReachabilityRef,
+) -> SCNetworkReachabilityFlags {
     if !env.options.network_access {
         return 0;
     }
-    let address = env.objc.borrow::<SCNetworkReachabilityHostObject>(target).address;
+    let address = env
+        .objc
+        .borrow::<SCNetworkReachabilityHostObject>(target)
+        .address;
     if address.is_some_and(|address| address.ip().is_link_local()) {
         kSCNetworkReachabilityFlagsReachable | kSCNetworkReachabilityFlagsIsDirect
     } else {
@@ -173,10 +178,12 @@ pub(crate) fn callback_flags(
     env: &mut Environment,
     target: SCNetworkReachabilityRef,
 ) -> Option<SCNetworkReachabilityFlags> {
-    env.objc
+    let has_callback = env
+        .objc
         .borrow::<SCNetworkReachabilityHostObject>(target)
         .callback
-        .map(|_| reachability_flags(env, target))
+        .is_some();
+    has_callback.then(|| reachability_flags(env, target))
 }
 
 pub(crate) fn notify_callback(
@@ -203,7 +210,11 @@ fn SCNetworkReachabilityScheduleWithRunLoop(
         return false;
     }
     let class: Class = msg![env; target class];
-    if class != env.objc.get_known_class("_touchHLE_SCNetworkReachability", &mut env.mem) {
+    if class
+        != env
+            .objc
+            .get_known_class("_touchHLE_SCNetworkReachability", &mut env.mem)
+    {
         return false;
     }
     ns_run_loop::add_reachability_source(env, run_loop, target, mode);
@@ -232,7 +243,11 @@ fn SCNetworkReachabilitySetCallback(
         return false;
     }
     let target_class: Class = msg![env; target class];
-    if target_class != env.objc.get_known_class("_touchHLE_SCNetworkReachability", &mut env.mem) {
+    if target_class
+        != env
+            .objc
+            .get_known_class("_touchHLE_SCNetworkReachability", &mut env.mem)
+    {
         return false;
     }
 
@@ -243,16 +258,18 @@ fn SCNetworkReachabilitySetCallback(
         Ptr::null()
     } else {
         let slots = context.cast::<u32>();
-        if env.mem.read(slots) != 0
-            || env.mem.read(slots + 2) != 0
-            || env.mem.read(slots + 3) != 0
+        if env.mem.read(slots) != 0 || env.mem.read(slots + 2) != 0 || env.mem.read(slots + 3) != 0
         {
-            log!("SCNetworkReachabilitySetCallback: unsupported context version or ownership hooks");
+            log!(
+                "SCNetworkReachabilitySetCallback: unsupported context version or ownership hooks"
+            );
             return false;
         }
         Ptr::from_bits(env.mem.read(slots + 1))
     };
-    let state = env.objc.borrow_mut::<SCNetworkReachabilityHostObject>(target);
+    let state = env
+        .objc
+        .borrow_mut::<SCNetworkReachabilityHostObject>(target);
     state.callback = (callout.addr_with_thumb_bit() != 0).then_some(callout);
     state.callback_info = info;
     true

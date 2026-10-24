@@ -941,20 +941,21 @@ const ALC_ALL_ATTRIBUTES: ALCint = 0x1003;
 /// minimum source counts; they are not arbitrary limits enforced on sources.
 fn alc_context_attributes(frequency: ALCint, refresh: ALCint) -> [ALCint; 11] {
     [
-        ALC_FREQUENCY, frequency,
-        ALC_REFRESH, refresh,
-        ALC_SYNC, 0,
-        ALC_MONO_SOURCES, 128,
-        ALC_STEREO_SOURCES, 16,
+        ALC_FREQUENCY,
+        frequency,
+        ALC_REFRESH,
+        refresh,
+        ALC_SYNC,
+        0,
+        ALC_MONO_SOURCES,
+        128,
+        ALC_STEREO_SOURCES,
+        16,
         0,
     ]
 }
 
-fn alc_integer_query(
-    param: ALCenum,
-    frequency: ALCint,
-    refresh: ALCint,
-) -> Option<Vec<ALCint>> {
+fn alc_integer_query(param: ALCenum, frequency: ALCint, refresh: ALCint) -> Option<Vec<ALCint>> {
     let attrs = alc_context_attributes(frequency, refresh);
     match param {
         ALC_MAJOR_VERSION | ALC_MINOR_VERSION => Some(vec![1]),
@@ -968,7 +969,6 @@ fn alc_integer_query(
         _ => None,
     }
 }
-
 
 fn alcGetEnumValue(
     _env: &mut Environment,
@@ -1066,11 +1066,23 @@ mod tests {
     fn alc_integer_queries_report_valid_core_context_attributes() {
         let attrs = alc_integer_query(ALC_ALL_ATTRIBUTES, 48000, 50).unwrap();
         assert_eq!(attrs.len(), 11);
-        assert_eq!(attrs[0..6], [ALC_FREQUENCY, 48000, ALC_REFRESH, 50, ALC_SYNC, 0]);
+        assert_eq!(
+            attrs[0..6],
+            [ALC_FREQUENCY, 48000, ALC_REFRESH, 50, ALC_SYNC, 0]
+        );
         assert_eq!(attrs[10], 0);
-        assert_eq!(alc_integer_query(ALC_ATTRIBUTES_SIZE, 48000, 50), Some(vec![11]));
-        assert_eq!(alc_integer_query(ALC_MAJOR_VERSION, 48000, 50), Some(vec![1]));
-        assert_eq!(alc_integer_query(ALC_MINOR_VERSION, 48000, 50), Some(vec![1]));
+        assert_eq!(
+            alc_integer_query(ALC_ATTRIBUTES_SIZE, 48000, 50),
+            Some(vec![11])
+        );
+        assert_eq!(
+            alc_integer_query(ALC_MAJOR_VERSION, 48000, 50),
+            Some(vec![1])
+        );
+        assert_eq!(
+            alc_integer_query(ALC_MINOR_VERSION, 48000, 50),
+            Some(vec![1])
+        );
         assert_eq!(alc_integer_query(-1, 48000, 50), None);
     }
 }

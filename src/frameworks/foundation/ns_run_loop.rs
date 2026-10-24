@@ -143,17 +143,24 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
-
 pub fn add_reachability_source(env: &mut Environment, run_loop: id, target: id, mode: id) {
-    let sources = &mut env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop).reachability_sources;
-    if sources.iter().any(|source| source.target == target && source.mode == mode) {
+    let sources = &mut env
+        .objc
+        .borrow_mut::<NSRunLoopHostObject>(run_loop)
+        .reachability_sources;
+    if sources
+        .iter()
+        .any(|source| source.target == target && source.mode == mode)
+    {
         return;
     }
     // As on iOS, scheduling retains its target until explicitly unscheduled.
     retain(env, target);
     retain(env, mode);
-    env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop)
-        .reachability_sources.push(ReachabilitySource {
+    env.objc
+        .borrow_mut::<NSRunLoopHostObject>(run_loop)
+        .reachability_sources
+        .push(ReachabilitySource {
             target,
             mode,
             last_notified_flags: None,
@@ -166,8 +173,14 @@ pub fn remove_reachability_source(
     target: id,
     mode: id,
 ) -> bool {
-    let sources = &mut env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop).reachability_sources;
-    let Some(index) = sources.iter().position(|source| source.target == target && source.mode == mode) else {
+    let sources = &mut env
+        .objc
+        .borrow_mut::<NSRunLoopHostObject>(run_loop)
+        .reachability_sources;
+    let Some(index) = sources
+        .iter()
+        .position(|source| source.target == target && source.mode == mode)
+    else {
         return false;
     };
     sources.remove(index);
@@ -178,14 +191,24 @@ pub fn remove_reachability_source(
 
 fn handle_reachability_sources(env: &mut Environment, run_loop: id) {
     // Snapshot before invoking guest callbacks: a callback may unschedule itself.
-    let sources = env.objc.borrow::<NSRunLoopHostObject>(run_loop).reachability_sources.clone();
+    let sources = env
+        .objc
+        .borrow::<NSRunLoopHostObject>(run_loop)
+        .reachability_sources
+        .clone();
     for source in sources {
         let Some(flags) = sc_network_reachability::callback_flags(env, source.target) else {
             continue;
         };
         let should_notify = {
-            let sources = &mut env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop).reachability_sources;
-            if let Some(entry) = sources.iter_mut().find(|entry| entry.target == source.target && entry.mode == source.mode) {
+            let sources = &mut env
+                .objc
+                .borrow_mut::<NSRunLoopHostObject>(run_loop)
+                .reachability_sources;
+            if let Some(entry) = sources
+                .iter_mut()
+                .find(|entry| entry.target == source.target && entry.mode == source.mode)
+            {
                 if entry.last_notified_flags == Some(flags) {
                     false
                 } else {
