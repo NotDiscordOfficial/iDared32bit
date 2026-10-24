@@ -15,4 +15,5 @@ cargo fmt $RUSTFMT_EXTRA
 clang-format $CLANG_FORMAT_EXTRA -i \
     `find src tests/TestApp_source \
         -name '*.cpp' -or -name '*.hpp' \
-        -or -name '*.c' -or -name '*.h' -or -name '*.m'`
+        -or -name '*.c' -or -name '*.h' -or -name '*.m' \
+        -or -name '*.mm'`

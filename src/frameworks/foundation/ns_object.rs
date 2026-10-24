@@ -36,7 +36,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 + (id)allocWithZone:(NSZonePtr)_zone { // struct _NSZone*
     log_dbg!("[{:?} allocWithZone:]", this);
-    env.objc.alloc_object(this, Box::new(TrivialHostObject), &mut env.mem)
+    let object =
+        env.objc
+            .alloc_object(this, Box::new(TrivialHostObject), &mut env.mem);
+
+    // Clang emits this initializer for Objective-C classes with non-trivial
+    // C++ ivars. The Objective-C runtime calls it after allocating instance
+    // storage and before returning the object from +alloc.
+    if env.objc.class_has_method_named(this, ".cxx_construct") {
+        let selector = env.objc.lookup_selector(".cxx_construct").unwrap();
+        let _: id = msg_send(env, (object, selector));
+    }
+
+    object
 }
 
 + (id)new {
@@ -133,6 +145,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     log_dbg!("[{:?} dealloc]", this);
+    // Clang emits this method for Objective-C classes with non-trivial C++
+    // ivars. The Objective-C runtime calls it before releasing the storage.
+    if env
+        .objc
+        .class_has_method_named(ObjC::read_isa(this, &env.mem), ".cxx_destruct")
+    {
+        let selector = env.objc.lookup_selector(".cxx_destruct").unwrap();
+        let _: () = msg_send(env, (this, selector));
+    }
     env.objc.dealloc_object(this, &mut env.mem)
 }
 

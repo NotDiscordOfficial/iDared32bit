@@ -141,7 +141,7 @@ fn run_test_app(
         .filter(|filename| {
             filename
                 .extension()
-                .is_some_and(|ext| ext == "m" || ext == "c" || ext == "cpp")
+                .is_some_and(|ext| ext == "m" || ext == "c" || ext == "cpp" || ext == "mm")
         })
         .map(|entry| source_path.join(entry))
         .collect();

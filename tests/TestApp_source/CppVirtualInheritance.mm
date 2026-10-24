@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-// Behavioral test for C++ virtual inheritance.
+// Behavioral tests for C++ virtual inheritance and Objective-C++ ivars.
 //
 // This exercises vtable/VTT-dependent construction and virtual dispatch to
 // verify that the object layout is correct. It was written alongside a fix
@@ -19,6 +19,27 @@
 // the bug manifested. This test still provides end-to-end coverage of
 // virtual inheritance correctness and would catch a regression if the
 // toolchain ever changes its relocation strategy.
+
+#import <Foundation/Foundation.h>
+
+static int objc_cpp_ivar_destructions = 0;
+
+struct VirtualMember {
+  int value;
+  VirtualMember() : value(42) {}
+  virtual ~VirtualMember() { ++objc_cpp_ivar_destructions; }
+  virtual int getValue() { return value; }
+};
+
+@interface ObjectWithCppIvar : NSObject {
+  VirtualMember member;
+}
+- (int)memberValue;
+@end
+
+@implementation ObjectWithCppIvar
+- (int)memberValue { return member.getValue(); }
+@end
 
 extern "C" int test_cpp_virtual_inheritance(void);
 
@@ -84,6 +105,14 @@ int test_cpp_virtual_inheritance(void) {
   bp->base_val = 0xBEEF;
   if (d.base_val != (int)0xBEEF)
     return -6;
+
+  objc_cpp_ivar_destructions = 0;
+  ObjectWithCppIvar *object = [[ObjectWithCppIvar alloc] init];
+  if ([object memberValue] != 42)
+    return -7;
+  [object release];
+  if (objc_cpp_ivar_destructions != 1)
+    return -8;
 
   return 0;
 }
