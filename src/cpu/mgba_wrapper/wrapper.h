@@ -8,6 +8,7 @@
 #define TOUCHHLE_MGBA_WRAPPER_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include <mgba/internal/arm/arm.h>
@@ -96,6 +97,11 @@ struct touchHLE_MgbaWrapper {
    * so each is logged once. Zero is safe as "none": it does not encode an
    * MCR or MRC. */
   uint32_t unknown_cp15_opcode;
+
+  /* Bounded guest PC history for crash diagnostics; entries include the Thumb bit. */
+  uint32_t recent_instruction_pcs[64];
+  uint32_t recent_instruction_pcs_next;
+  uint32_t recent_instruction_pcs_count;
 };
 
 static inline struct touchHLE_MgbaWrapper *wrapper_of(struct ARMCore *cpu) {
@@ -122,6 +128,9 @@ struct touchHLE_MgbaContext {
   uint32_t cpsr;
   uint32_t fpscr;
 };
+
+size_t touchHLE_MgbaWrapper_copy_recent_instruction_pcs(
+    const struct touchHLE_MgbaWrapper *w, uint32_t *output, size_t capacity);
 
 /* src/cpu/mgba_wrapper/vfp.c */
 void touchHLE_vfp_reset(struct touchHLE_Vfp *vfp);

@@ -195,6 +195,30 @@ impl Cpu {
     pub fn dump_regs(&self) {
         let regs = self.regs();
         Self::echo_regs(regs);
+
+        let mut recent_pcs = [0; 64];
+        let count = self.copy_recent_instruction_pcs(&mut recent_pcs);
+        if count > 0 {
+            echo!("Recent guest instruction PCs (oldest first):");
+            for row in recent_pcs[..count].chunks(8) {
+                let line = row
+                    .iter()
+                    .map(|pc| format!("{pc:#010x}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                echo!("  {line}");
+            }
+        }
+    }
+
+    fn copy_recent_instruction_pcs(&self, output: &mut [u32]) -> usize {
+        unsafe {
+            touchHLE_MgbaWrapper_copy_recent_instruction_pcs(
+                self.mgba_wrapper,
+                output.as_mut_ptr(),
+                output.len(),
+            )
+        }
     }
 
     pub fn echo_regs(regs: &[u32; 16]) {
@@ -385,6 +409,10 @@ mod tests {
         // hardware SVC-exception-entry semantics (see handle_cpu_state() in
         // src/environment.rs, which subtracts 4 to recover the svc address).
         assert_eq!(cpu.regs()[Cpu::PC], code_addr + 4 * 4);
+        let mut recent_pcs = [0; 4];
+        let count = cpu.copy_recent_instruction_pcs(&mut recent_pcs);
+        assert_eq!(count, 4);
+        assert_eq!(recent_pcs, [code_addr, code_addr + 4, code_addr + 8, code_addr + 12]);
         match state {
             CpuState::Svc(svc) => assert_eq!(svc, 0x123456),
             other => panic!("Expected an SVC halt, got {other:?}"),

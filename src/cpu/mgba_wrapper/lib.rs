@@ -85,6 +85,11 @@ extern "C" {
         cpu: *mut touchHLE_MgbaWrapper,
         context: *mut touchHLE_MgbaContext,
     );
+    pub fn touchHLE_MgbaWrapper_copy_recent_instruction_pcs(
+        cpu: *const touchHLE_MgbaWrapper,
+        output: *mut u32,
+        capacity: usize,
+    ) -> usize;
     pub fn touchHLE_MgbaWrapper_invalidate_cache_range(
         cpu: *mut touchHLE_MgbaWrapper,
         start: VAddr,

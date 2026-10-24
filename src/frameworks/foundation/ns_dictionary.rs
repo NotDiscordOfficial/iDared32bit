@@ -128,6 +128,18 @@ pub struct CFDictionaryKeyCallBacks {
     pub hash: GuestFunction,      // CFHashCode (*hash)(const void *val)
 }
 unsafe impl SafeRead for CFDictionaryKeyCallBacks {}
+impl Default for CFDictionaryKeyCallBacks {
+    fn default() -> Self {
+        Self {
+            version: 0,
+            retain: GuestFunction::null_ptr(),
+            release: GuestFunction::null_ptr(),
+            copy_desc: GuestFunction::null_ptr(),
+            equal: GuestFunction::null_ptr(),
+            hash: GuestFunction::null_ptr(),
+        }
+    }
+}
 
 #[repr(C, packed)]
 pub struct CFDictionaryValueCallBacks {
@@ -138,6 +150,25 @@ pub struct CFDictionaryValueCallBacks {
     pub equal: GuestFunction,     // Boolean (*equal)(const void *val1, const void *val2)
 }
 unsafe impl SafeRead for CFDictionaryValueCallBacks {}
+impl Default for CFDictionaryValueCallBacks {
+    fn default() -> Self {
+        Self {
+            version: 0,
+            retain: GuestFunction::null_ptr(),
+            release: GuestFunction::null_ptr(),
+            copy_desc: GuestFunction::null_ptr(),
+            equal: GuestFunction::null_ptr(),
+        }
+    }
+}
+
+fn read_callbacks<T: SafeRead + Default>(env: &Environment, callbacks: ConstPtr<T>) -> T {
+    if callbacks.is_null() {
+        T::default()
+    } else {
+        env.mem.read(callbacks)
+    }
+}
 
 /// The choice of implementing CFDictionary as subclass
 /// of NSDictionary is not a hard truth but a reflection
@@ -891,12 +922,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 // our custom init, not a part of API
 - (id)initWithKeyCallbacks:(ConstPtr<CFDictionaryKeyCallBacks>)key_callbacks
          andValueCallbacks:(ConstPtr<CFDictionaryValueCallBacks>)value_callbacks {
-    if !key_callbacks.is_null() {
-        assert!(!value_callbacks.is_null());
-        let host_object = env.objc.borrow_mut::<CFDictionaryHostObject>(this);
-        host_object.key_callbacks = env.mem.read(key_callbacks);
-        host_object.value_callbacks = env.mem.read(value_callbacks);
-    };
+    let key_callbacks = read_callbacks(env, key_callbacks);
+    let value_callbacks = read_callbacks(env, value_callbacks);
+    let host_object = env.objc.borrow_mut::<CFDictionaryHostObject>(this);
+    host_object.key_callbacks = key_callbacks;
+    host_object.value_callbacks = value_callbacks;
     this
 }
 
@@ -1077,4 +1107,53 @@ fn encode_with_coder_inner(env: &mut Environment, dict: id, coder: id) {
     let scope = get_value_to_encode_for_current_key(env, coder);
     scope.insert("NS.keys".to_string(), plist::Value::Array(encoded_keys));
     scope.insert("NS.objects".to_string(), plist::Value::Array(encoded_vals));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cf_dictionary_callback_structs_are_independently_optional() {
+        let mut env = Environment::new_fake_for_test();
+
+        let key_memory = env.mem.vm_alloc(Some(0x1000_0000), crate::mem::PAGE_SIZE).unwrap();
+        let key_ptr: MutPtr<CFDictionaryKeyCallBacks> = key_memory.cast();
+        env.mem.write(
+            key_ptr,
+            CFDictionaryKeyCallBacks {
+                version: 1,
+                ..Default::default()
+            },
+        );
+        let key_ptr = key_ptr.cast_const();
+
+        let value_memory = env.mem.vm_alloc(Some(0x1000_1000), crate::mem::PAGE_SIZE).unwrap();
+        let value_ptr: MutPtr<CFDictionaryValueCallBacks> = value_memory.cast();
+        env.mem.write(
+            value_ptr,
+            CFDictionaryValueCallBacks {
+                version: 2,
+                ..Default::default()
+            },
+        );
+        let value_ptr = value_ptr.cast_const();
+
+        let null_key_callbacks: ConstPtr<CFDictionaryKeyCallBacks> = Ptr::from_bits(0);
+        let null_value_callbacks: ConstPtr<CFDictionaryValueCallBacks> = Ptr::from_bits(0);
+
+        let value_without_key = read_callbacks(&env, null_key_callbacks);
+        let key_without_value = read_callbacks(&env, key_ptr);
+        let key_only_value_default = read_callbacks(&env, null_value_callbacks);
+        let value_only = read_callbacks(&env, value_ptr);
+
+        let (value_without_key_version, key_without_value_version) =
+            (value_without_key.version, key_without_value.version);
+        let (key_only_value_default_version, value_only_version) =
+            (key_only_value_default.version, value_only.version);
+        assert_eq!(value_without_key_version, 0);
+        assert_eq!(key_without_value_version, 1);
+        assert_eq!(key_only_value_default_version, 0);
+        assert_eq!(value_only_version, 2);
+    }
 }

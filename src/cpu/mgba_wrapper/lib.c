@@ -473,6 +473,18 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
   /* Stepping one instruction at a time rather than using ARMRunLoop, so
    * that a halt is noticed immediately instead of at the next event. */
   while (executed < budget && !w->halted) {
+    uint32_t instruction_pc = (uint32_t)w->cpu.gprs[ARM_PC] -
+        (w->cpu.executionMode == MODE_THUMB ? 4u : 8u);
+    if (w->cpu.executionMode == MODE_THUMB) {
+      instruction_pc |= 1u;
+    }
+    w->recent_instruction_pcs[w->recent_instruction_pcs_next] = instruction_pc;
+    w->recent_instruction_pcs_next =
+        (w->recent_instruction_pcs_next + 1u) % 64u;
+    if (w->recent_instruction_pcs_count < 64u) {
+      w->recent_instruction_pcs_count++;
+    }
+
     ARMRun(&w->cpu);
     executed++;
   }
@@ -483,4 +495,21 @@ int32_t touchHLE_MgbaWrapper_run_or_step(struct touchHLE_MgbaWrapper *w,
     *ticks = (executed > *ticks) ? 0 : (*ticks - executed);
   }
   return w->result;
+}
+
+size_t touchHLE_MgbaWrapper_copy_recent_instruction_pcs(
+    const struct touchHLE_MgbaWrapper *w, uint32_t *output, size_t capacity) {
+  if (!output || capacity == 0) {
+    return 0;
+  }
+
+  size_t count = w->recent_instruction_pcs_count;
+  if (count > capacity) {
+    count = capacity;
+  }
+  size_t start = (w->recent_instruction_pcs_next + 64u - count) % 64u;
+  for (size_t i = 0; i < count; i++) {
+    output[i] = w->recent_instruction_pcs[(start + i) % 64u];
+  }
+  return count;
 }
