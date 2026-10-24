@@ -9,6 +9,7 @@ name: Crafted private runtime smoke tests
 # No IPA is committed, written to the public repository, or uploaded as an artifact.
 # Run only after the cheap Linux preflight succeeds on our own branch.
 # Never grant private fixture credentials to untrusted pull_request code.
+# Explicit CI-only commits tagged [skip crafted smoke] do not consume macOS time.
 on:
   workflow_run:
     workflows: ["Lint and test"]
@@ -31,7 +32,8 @@ jobs:
             (github.event.workflow_run.conclusion == 'success' &&
              github.event.workflow_run.event == 'push' &&
              github.event.workflow_run.head_branch == 'idared32bit' &&
-             github.event.workflow_run.head_repository.full_name == github.repository)) }}
+             github.event.workflow_run.head_repository.full_name == github.repository &&
+             !contains(github.event.workflow_run.display_title, '[skip crafted smoke]'))) }}
     runs-on: macos-15
     timeout-minutes: 90
     env:

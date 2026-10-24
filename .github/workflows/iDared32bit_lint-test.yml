@@ -2,7 +2,8 @@ name: Lint and test
 
 # Cheap Linux checks on every push/PR. Expensive Windows, macOS and Android
 # platform testing is opt-in via workflow_dispatch. The Crafted smoke workflow
-# is gated on successful Linux push checks.
+# is gated on successful Linux push checks. The Linux gate covers rustfmt,
+# clang-format, Clippy, a full type check and Rust unit tests.
 
 on:
   push:
@@ -35,7 +36,7 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-          rustup component add rustfmt
+          rustup component add rustfmt clippy
       - name: Install clang-format
         run: sudo apt-get update -qq && sudo apt-get install -y clang-format
       - name: Check formatting
@@ -53,6 +54,8 @@ jobs:
           echo "CMAKE=$RUNNER_TEMP/cmake/bin/cmake" >> "$GITHUB_ENV"
       - name: Compile emulator on Linux
         run: cargo check --locked --bin touchHLE
+      - name: Clippy lint (Linux)
+        run: cargo clippy --locked -- --deny warnings
       - name: Rust unit tests
         run: cargo test --locked --lib
 
