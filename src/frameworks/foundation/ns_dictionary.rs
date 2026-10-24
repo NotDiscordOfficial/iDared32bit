@@ -586,6 +586,28 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this objectForKey:file_type_key]
 }
 
+- (())getCFKeys:(MutPtr<MutVoidPtr>)keys
+       values:(MutPtr<MutVoidPtr>)values {
+    let host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    let entries: Vec<_> = host_obj
+        .map
+        .values()
+        .flatten()
+        .copied()
+        .collect();
+    *env.objc.borrow_mut(this) = host_obj;
+
+    for (index, (key, value)) in entries.into_iter().enumerate() {
+        let index = index.try_into().unwrap();
+        if !keys.is_null() {
+            env.mem.write(keys + index, key.cast());
+        }
+        if !values.is_null() {
+            env.mem.write(values + index, value.cast());
+        }
+    }
+}
+
 @end
 
 // NSMutableDictionary is an abstract class. A subclass must provide everything
