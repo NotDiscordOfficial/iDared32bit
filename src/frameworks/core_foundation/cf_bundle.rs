@@ -20,6 +20,7 @@ use crate::objc::{id, msg, msg_class, retain};
 use crate::Environment;
 
 const kCFBundleVersionKey: &str = "CFBundleVersion";
+const kCFBundleNameKey: &str = "CFBundleName";
 const kCFBundleExecutableKey: &str = "CFBundleExecutable";
 
 pub const CONSTANTS: ConstantExports = &[
@@ -30,6 +31,10 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_kCFBundleExecutableKey",
         HostConstant::NSString(kCFBundleExecutableKey),
+    ),
+    (
+        "_kCFBundleNameKey",
+        HostConstant::NSString(kCFBundleNameKey),
     ),
 ];
 
