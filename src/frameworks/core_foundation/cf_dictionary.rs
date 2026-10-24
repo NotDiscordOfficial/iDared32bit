@@ -48,17 +48,17 @@ fn CFDictionaryAddValue(
     value: ConstVoidPtr,
 ) {
     let key: id = key.cast().cast_mut();
-    let res: id = msg![env; dict objectForKey:key];
+    let contains: bool = msg![env; dict containsCFKey:key];
     log_dbg!(
-        "CFDictionaryAddValue dict {:?} k {:?} v {:?}; res {:?}",
+        "CFDictionaryAddValue dict {:?} k {:?} v {:?}; contains {}",
         dict,
         key,
         value,
-        res
+        contains
     );
-    if res == nil {
+    if !contains {
         let value: id = value.cast().cast_mut();
-        msg![env; dict setObject:value forKey:key]
+        msg![env; dict setCFValue:value forKey:key]
     }
 }
 
@@ -71,27 +71,17 @@ fn CFDictionarySetValue(
     log_dbg!("CFDictionarySetValue k {:?} v {:?}", key, value);
     let key: id = key.cast().cast_mut();
     let value: id = value.cast().cast_mut();
-    msg![env; dict setObject:value forKey:key]
+    msg![env; dict setCFValue:value forKey:key]
 }
 
 fn CFDictionaryRemoveValue(env: &mut Environment, dict: CFMutableDictionaryRef, key: ConstVoidPtr) {
     let key: id = key.cast().cast_mut();
     log_dbg!("CFDictionaryRemoveValue dict {:?} key {:?}", dict, key);
-    () = msg![env; dict removeObjectForKey:key];
+    () = msg![env; dict removeCFKey:key];
 }
 
 fn CFDictionaryRemoveAllValues(env: &mut Environment, dict: CFMutableDictionaryRef) {
-    // TODO: use keyEnumerator
-    let keys_arr: id = msg![env; dict allKeys];
-    let enumerator: id = msg![env; keys_arr objectEnumerator];
-    let mut key: id;
-    loop {
-        key = msg![env; enumerator nextObject];
-        if key == nil {
-            break;
-        }
-        CFDictionaryRemoveValue(env, dict, key.cast().cast_const());
-    }
+    () = msg![env; dict removeAllCFValues];
 }
 
 fn CFDictionaryGetValue(
@@ -116,34 +106,7 @@ fn CFDictionaryGetKeysAndValues(
     keys: ConstPtr<MutVoidPtr>,
     values: ConstPtr<MutVoidPtr>,
 ) {
-    let mut key_ptr = keys.cast_mut();
-    let mut val_ptr = values.cast_mut();
-    // TODO: use keyEnumerator
-    let keys_arr: id = msg![env; dict allKeys];
-    let enumerator: id = msg![env; keys_arr objectEnumerator];
-    let mut key: id;
-    let mut val: id;
-    loop {
-        key = msg![env; enumerator nextObject];
-        if key == nil {
-            break;
-        }
-        if !key_ptr.is_null() {
-            env.mem.write(key_ptr, key.cast());
-            key_ptr += 1;
-        }
-        if !val_ptr.is_null() {
-            val = msg![env; dict objectForKey:key];
-            log_dbg!(
-                "CFDictionaryGetKeysAndValues dict {:?} key {:?} val {:?}",
-                dict,
-                key,
-                val
-            );
-            env.mem.write(val_ptr, val.cast());
-            val_ptr += 1;
-        }
-    }
+    () = msg![env; dict getCFKeys:keys.cast_mut() values:values.cast_mut()];
 }
 
 // Default CFDictionary callbacks

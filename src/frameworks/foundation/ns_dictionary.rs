@@ -45,9 +45,7 @@ pub(super) struct DictionaryHostObject {
     /// The keys are the hash values, the values are a list of key-value pairs
     /// where the keys have the same hash value.
     pub(super) map: HashMap<Hash, Vec<(id, id)>>,
-    pub(super) count: NSUInteger,
-}
-impl HostObject for DictionaryHostObject {}
+    pub(super) count: NSUInteger,\n}impl HostObject for DictionaryHostObject {}
 impl DictionaryHostObject {
     pub(super) fn lookup(&self, env: &mut Environment, key: id) -> id {
         let hash: Hash = msg![env; key hash];
@@ -224,6 +222,14 @@ impl CFDictionaryHostObject {
         }
         nil
     }
+    fn contains_key(&self, env: &mut Environment, key: id) -> bool {
+        let hash = self.hash(env, key);
+        self.superclass.map.get(&hash).is_some_and(|collisions| {
+            collisions
+                .iter()
+                .any(|&(candidate_key, _)| self.equal_keys(env, candidate_key, key))
+        })
+    }
     fn insert(&mut self, env: &mut Environment, key: id, value: id) {
         let hash = self.hash(env, key);
         let key = self.retain_key(env, key);
@@ -261,6 +267,21 @@ impl CFDictionaryHostObject {
         }
     }
     // helpers
+    fn remove_all(&mut self, env: &mut Environment) {
+        let entries: Vec<_> = self
+            .superclass
+            .map
+            .values()
+            .flatten()
+            .copied()
+            .collect();
+        for (key, value) in entries {
+            self.release_key(env, key);
+            self.release_value(env, value);
+        }
+        self.superclass.map.clear();
+        self.superclass.count = 0;
+    }
     fn hash(&self, env: &mut Environment, key: id) -> CFHashCode {
         let hash_func = self.key_callbacks.hash;
         if hash_func.to_ptr().is_null() {
@@ -958,15 +979,57 @@ pub const CLASSES: ClassExports = objc_classes! {
     panic!("Unexpected call to valueForKey: for _touchHLE_NSMutableDictionary_non_retaining object {this:?}");
 }
 
-- (())setObject:(id)object
-         forKey:(id)key {
-    assert!(!key.is_null());
+- (bool)containsCFKey:(id)key {
+    let host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    let contains = host_obj.contains_key(env, key);
+    *env.objc.borrow_mut(this) = host_obj;
+    contains
+}
+
+- (())setCFValue:(id)value
+       forKey:(id)key {
     let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
-    host_obj.insert(env, key, object);
+    host_obj.insert(env, key, value);
     *env.objc.borrow_mut(this) = host_obj;
 }
 
-- (())removeObjectForKey:(id)key {
+- (())removeCFKey:(id)key {
+    let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    host_obj.remove(env, key);
+    *env.objc.borrow_mut(this) = host_obj;
+}
+
+- (())removeAllCFValues {
+    let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    host_obj.remove_all(env);
+    *env.objc.borrow_mut(this) = host_obj;
+}
+
+- (())getCFKeys:(MutPtr<MutVoidPtr>)keys
+       values:(MutPtr<MutVoidPtr>)values {
+    let host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    let entries: Vec<_> = host_obj
+        .superclass
+        .map
+        .values()
+        .flatten()
+        .copied()
+        .collect();
+    *env.objc.borrow_mut(this) = host_obj;
+
+    for (index, (key, value)) in entries.into_iter().enumerate() {
+        let index = index.try_into().unwrap();
+        if !keys.is_null() {
+            env.mem.write(keys + index, key.cast());
+        }
+        if !values.is_null() {
+            env.mem.write(values + index, value.cast());
+        }
+    }
+}
+
+- (())setObject:(id)object
+         forKey:(id)key {
     assert!(!key.is_null());
     let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     host_obj.remove(env, key);
@@ -1112,6 +1175,26 @@ fn encode_with_coder_inner(env: &mut Environment, dict: id, coder: id) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cf_dictionary_accepts_null_pointer_keys_with_default_callbacks() {
+        let mut env = Environment::new_fake_for_test();
+        let mut dict = CFDictionaryHostObject::default();
+        let first_value: id = Ptr::from_bits(0x1234);
+        let second_value: id = Ptr::from_bits(0x5678);
+
+        dict.insert(&mut env, nil, first_value);
+        assert!(dict.contains_key(&mut env, nil));
+        assert_eq!(dict.lookup(&mut env, nil), first_value);
+
+        dict.insert(&mut env, nil, second_value);
+        assert_eq!(dict.superclass.count, 1);
+        assert_eq!(dict.lookup(&mut env, nil), second_value);
+
+        dict.remove_all(&mut env);
+        assert_eq!(dict.superclass.count, 0);
+        assert!(!dict.contains_key(&mut env, nil));
+    }
 
     #[test]
     fn cf_dictionary_callback_structs_are_independently_optional() {
