@@ -6232,13 +6232,16 @@ int test_NSURLRequest_creation_without_network_access() {
   [mutableRequest setValue:[NSString stringWithUTF8String:"application/json"]
         forHTTPHeaderField:[NSString stringWithUTF8String:"Content-Type"]];
   NSURLRequest *copiedRequest = [mutableRequest copy];
+  NSString *expectedMethod = [NSString stringWithUTF8String:"POST"];
+  NSString *headerName = [NSString stringWithUTF8String:"Content-Type"];
+  NSString *expectedContentType =
+      [NSString stringWithUTF8String:"application/json"];
+  NSString *copiedContentType =
+      [[copiedRequest allHTTPHeaderFields] objectForKey:headerName];
   if (copiedRequest == nil || [copiedRequest URL] == nil ||
-      ![[copiedRequest HTTPMethod] isEqualToString:
-          [NSString stringWithUTF8String:"POST"]] ||
+      ![[copiedRequest HTTPMethod] isEqualToString:expectedMethod] ||
       [copiedRequest timeoutInterval] != 15.0 ||
-      ![[[copiedRequest allHTTPHeaderFields]
-          objectForKey:[NSString stringWithUTF8String:"Content-Type"]]
-          isEqualToString:[NSString stringWithUTF8String:"application/json"]]) {
+      ![copiedContentType isEqualToString:expectedContentType]) {
     [copiedRequest release];
     [mutableRequest release];
     [request release];
