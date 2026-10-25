@@ -6222,6 +6222,13 @@ int test_NSURLRequest_creation_without_network_access() {
     return -3;
   }
   [mutableRequest setHTTPMethod:[NSString stringWithUTF8String:"POST"]];
+  [mutableRequest setTimeoutInterval:15.0];
+  if ([mutableRequest timeoutInterval] != 15.0) {
+    [mutableRequest release];
+    [request release];
+    [pool drain];
+    return -4;
+  }
   [mutableRequest setValue:[NSString stringWithUTF8String:"application/json"]
         forHTTPHeaderField:[NSString stringWithUTF8String:"Content-Type"]];
 

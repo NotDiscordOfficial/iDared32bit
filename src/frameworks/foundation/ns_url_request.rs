@@ -113,6 +113,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)URL {
     env.objc.borrow::<NSURLRequestHostObject>(this).url
 }
+- (NSTimeInterval)timeoutInterval {
+    env.objc.borrow::<NSURLRequestHostObject>(this).timeout_interval
+}
 - (id)HTTPBody {
     env.objc.borrow::<NSURLRequestHostObject>(this).http_body
 }
@@ -136,6 +139,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 @implementation NSMutableURLRequest: NSURLRequest
+
+- (())setTimeoutInterval:(NSTimeInterval)timeout_interval {
+    env.objc
+        .borrow_mut::<NSURLRequestHostObject>(this)
+        .timeout_interval = timeout_interval;
+}
 
 - (())setCachePolicy:(NSURLRequestCachePolicy)cache_policy {
     todo_objc_setter!(this, cache_policy);
