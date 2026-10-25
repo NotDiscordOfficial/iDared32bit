@@ -6189,6 +6189,19 @@ int test_NSInvocation_invokeWithTarget() {
   return 0;
 }
 
+int test_NSMutableDictionary_single_object_factory() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSString *key = [NSString stringWithUTF8String:"key"];
+  NSString *value = [NSString stringWithUTF8String:"value"];
+  NSMutableDictionary *dictionary =
+      [NSMutableDictionary dictionaryWithObject:value forKey:key];
+  [dictionary setValue:key forKey:value];
+  BOOL passed = [dictionary objectForKey:key] == value &&
+                [dictionary objectForKey:value] == key;
+  [pool drain];
+  return passed ? 0 : -1;
+}
+
 int test_NSInvocationOperation() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   InvocationTarget *target = [[InvocationTarget new] autorelease];
@@ -7365,6 +7378,7 @@ struct {
     FUNC_DEF(test_NSInvocation),
     FUNC_DEF(test_NSInvocation_invokeWithTarget),
     FUNC_DEF(test_NSInvocationOperation),
+    FUNC_DEF(test_NSMutableDictionary_single_object_factory),
     FUNC_DEF(test_NSURLRequest_creation_without_network_access),
     FUNC_DEF(test_NSInvocation_retainArguments),
     FUNC_DEF(test_NSInvocation_pointer),

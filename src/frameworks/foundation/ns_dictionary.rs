@@ -451,7 +451,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)dictionaryWithObject:(id)object forKey:(id)key {
     assert_ne!(key, nil); // TODO: raise proper exception
 
-    let new_dict = dict_from_keys_and_objects(env, &[(key, object)]);
+    let new_dict: id = msg![env; this alloc];
+    let new_dict: id = msg![env; new_dict init];
+    let mut host_object = DictionaryHostObject::default();
+    host_object.insert(env, key, object, /* copy_key: */ true);
+    *env.objc.borrow_mut(new_dict) = host_object;
     autorelease(env, new_dict)
 }
 
