@@ -440,12 +440,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     log_dbg!("[(NSFileManager *){:?} attributesOfItemAtPath:{} error:{:?}]", this, path, error);
     let guest_path = GuestPath::new(&path);
 
-    if !env.fs.exists(&guest_path) {
+    if !env.fs.exists(guest_path) {
         set_file_manager_error(env, error, NSFileReadNoSuchFileError);
         return nil;
     }
 
-    let attributes = file_attributes_common(env, &guest_path);
+    let attributes = file_attributes_common(env, guest_path);
     if !error.is_null() {
         env.mem.write(error, nil);
     }
