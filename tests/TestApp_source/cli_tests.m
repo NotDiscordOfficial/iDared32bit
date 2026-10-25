@@ -6198,8 +6198,9 @@ int test_NSInvocationOperation() {
 
 int test_NSURLRequest_creation_without_network_access() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
-  NSString *URLString =
-      [NSString stringWithUTF8String:"https://example.invalid/compatibility-test"];
+  NSString *URLString = [NSString
+      stringWithUTF8String:
+          "https://example.invalid/compatibility-test"];
   NSURL *url = [NSURL URLWithString:URLString];
   if (url == nil) {
     [pool drain];
