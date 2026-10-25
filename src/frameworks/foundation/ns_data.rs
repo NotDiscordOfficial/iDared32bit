@@ -6,9 +6,11 @@
 //! `NSData` and `NSMutableData`.
 
 use super::ns_string::to_rust_string;
-use super::{NSRange, NSUInteger};
+use super::{NSInteger, NSRange, NSUInteger};
+use crate::frameworks::foundation::ns_error::NSCocoaErrorDomain;
+use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::ns_keyed_unarchiver::decode_current_data;
-use crate::fs::GuestPath;
+use crate::fs::{FsError, GuestPath};
 use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, MutVoidPtr, Ptr};
 use crate::objc::{
     autorelease, id, msg, nil, objc_classes, release, retain, ClassExports, HostObject, NSZonePtr,
@@ -182,6 +184,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 // FIXME: writes should be atomic
 - (bool)writeToFile:(id)path // NSString*
          atomically:(bool)_use_aux_file {
+    let error: MutPtr<id> = Ptr::null();
+    msg![env; this writeToFile:path atomically:_use_aux_file error:error]
+}
+
+- (bool)writeToFile:(id)path // NSString*
+         atomically:(bool)_use_aux_file
+              error:(MutPtr<id>)out_error { // NSError**
     let file = to_rust_string(env, path);
     log_dbg!("[(NSData*){:?} writeToFile:{:?} atomically:_]", this, file);
     let host_object = env.objc.borrow::<NSDataHostObject>(this);
@@ -192,7 +201,26 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else {
         env.mem.bytes_at(host_object.bytes.cast(), host_object.length)
     };
-    env.fs.write(GuestPath::new(&file), slice).is_ok()
+    match env.fs.write(GuestPath::new(&file), slice) {
+        Ok(()) => true,
+        Err(err) => {
+            log!("Warning: NSData writeToFile {} failed with {:?}", file, err);
+            if !out_error.is_null() {
+                let code: NSInteger = match err {
+                    FsError::DoesNotExist | FsError::NonexistentParentDir => 4,
+                    FsError::AccessDenied | FsError::ReadonlyParentDir => 513,
+                    FsError::AlreadyExist => 516,
+                    _ => 512,
+                };
+                let domain = get_static_str(env, NSCocoaErrorDomain);
+                let error = msg_class![env; NSError alloc];
+                let error = msg![env; error initWithDomain:domain code:code userInfo:nil];
+                autorelease(env, error);
+                env.mem.write(out_error, error);
+            }
+            false
+        }
+    }
 }
 
 - (())dealloc {

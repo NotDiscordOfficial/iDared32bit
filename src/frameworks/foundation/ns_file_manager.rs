@@ -272,8 +272,9 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
         Err(err) => {
             log!(
-                "Warning: createDirectoryAtPath {} failed with {:?}, returning false",
+                "Warning: createDirectoryAtPath {} (withIntermediateDirectories: {}) failed with {:?}, returning false",
                 path_str,
+                with_intermediates,
                 err
             );
             let code = match &err {

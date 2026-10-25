@@ -1209,11 +1209,7 @@ pub const CLASSES: ClassExports = objc_classes! {
                                                     length:length];
 
     // TODO: write extended attributes about text encoding
-    let success: bool = msg![env; data writeToFile:path atomically:use_aux_file];
-    if !success && !error.is_null() {
-        todo!(); // TODO: create an NSError if requested
-    }
-    success
+    msg![env; data writeToFile:path atomically:use_aux_file error:error]
 }
 
 - (f32)floatValue {

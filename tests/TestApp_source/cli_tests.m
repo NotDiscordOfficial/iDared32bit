@@ -6267,6 +6267,21 @@ int test_NSFileManager_createDirectory_error() {
   return passed ? 0 : -1;
 }
 
+int test_NSString_writeToFile_error() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSString *string = [NSString stringWithUTF8String:"test"];
+  NSString *path =
+      [NSString stringWithUTF8String:"/__touchhle_missing_parent__/file"];
+  NSError *error = nil;
+  BOOL wrote = [string writeToFile:path
+                         atomically:NO
+                           encoding:NSUTF8StringEncoding
+                              error:&error];
+  BOOL passed = !wrote && error != nil && [error code] == 4;
+  [pool drain];
+  return passed ? 0 : -1;
+}
+
 int test_NSObject_performSelector_onThread() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   InvocationTarget *target = [[InvocationTarget new] autorelease];
@@ -7468,6 +7483,7 @@ struct {
     FUNC_DEF(test_NSSet_copy_semantics),
     FUNC_DEF(test_NSFileManager_contentsOfDirectory_error),
     FUNC_DEF(test_NSFileManager_createDirectory_error),
+    FUNC_DEF(test_NSString_writeToFile_error),
     FUNC_DEF(test_NSObject_performSelector_onThread),
     FUNC_DEF(test_NSURLRequest_creation_without_network_access),
     FUNC_DEF(test_NSInvocation_retainArguments),

@@ -142,6 +142,13 @@ typedef enum {
   NSCaseInsensitiveSearch = 1,
 } NSStringCompareOptions;
 
+typedef unsigned long NSStringEncoding;
+enum { NSUTF8StringEncoding = 4 };
+
+@interface NSError : NSObject
+- (NSInteger)code;
+@end
+
 @interface NSString : NSObject
 + (instancetype)stringWithFormat:(NSString *)format, ...;
 + (instancetype)stringWithUTF8String:(const char *)string;
@@ -154,9 +161,22 @@ typedef enum {
                                                (NSStringCompareOptions)options
                                              range:(NSRange)range;
 - (BOOL)isEqualToString:(NSString *)other;
+- (BOOL)writeToFile:(NSString *)path
+         atomically:(BOOL)useAuxiliaryFile
+           encoding:(NSStringEncoding)encoding
+              error:(NSError **)error;
 @end
 @interface NSMutableString : NSString
 - (void)deleteCharactersInRange:(NSRange)range;
+@end
+
+@interface NSFileManager : NSObject
++ (instancetype)defaultManager;
+- (NSArray *)contentsOfDirectoryAtPath:(NSString *)path error:(NSError **)error;
+- (BOOL)createDirectoryAtPath:(NSString *)path
+    withIntermediateDirectories:(BOOL)createIntermediates
+                     attributes:(NSDictionary *)attributes
+                          error:(NSError **)error;
 @end
 
 @interface NSValue : NSObject
