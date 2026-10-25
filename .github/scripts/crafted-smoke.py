@@ -49,6 +49,8 @@ def main() -> int:
         screenshot = args.screenshots / f"game-{index}-main-menu.png"
         singleplayer_screenshot = args.screenshots / f"game-{index}-singleplayer.png"
         create_world_screenshot = args.screenshots / f"game-{index}-create-world.png"
+        gameplay_screenshot = args.screenshots / f"game-{index}-gameplay.png"
+        final_screenshot = args.screenshots / f"game-{index}-final.png"
         screenshot_error = None
         log_path = args.logs / f"game-{index}.log"
         try:
@@ -61,6 +63,7 @@ def main() -> int:
                     env=env,
                     start_new_session=True,
                 ) as proc:
+                    started = time.monotonic()
                     capture_after = min(45, max(1, args.seconds * 2 // 3))
                     try:
                         proc.wait(timeout=capture_after)
@@ -158,14 +161,69 @@ def main() -> int:
                                         screenshot_error = (
                                             "Create New World tap did not change the rendered screen"
                                         )
+                                if screenshot_error is None:
+                                    subprocess.run(
+                                        [
+                                            "xdotool",
+                                            "mousemove",
+                                            "--sync",
+                                            str(screen_width // 2),
+                                            str(screen_height * 2 // 3),
+                                            "click",
+                                            "1",
+                                        ],
+                                        check=True,
+                                        timeout=5,
+                                    )
+                                    time.sleep(40)
+                                    capture = subprocess.run(
+                                        [
+                                            "import",
+                                            "-window",
+                                            "root",
+                                            str(gameplay_screenshot),
+                                        ],
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=15,
+                                    )
+                                    if capture.returncode != 0:
+                                        screenshot_error = (
+                                            capture.stderr.strip()
+                                            or "World loading screen capture failed"
+                                        )
+                                    elif hashlib.sha256(
+                                        create_world_screenshot.read_bytes()
+                                    ).digest() == hashlib.sha256(
+                                        gameplay_screenshot.read_bytes()
+                                    ).digest():
+                                        screenshot_error = (
+                                            "Creating a world did not change the rendered screen"
+                                        )
                             except (OSError, subprocess.SubprocessError, ValueError) as exc:
                                 screenshot_error = f"Unable to exercise Singleplayer control: {exc}"
+                        remaining = max(1, args.seconds - (time.monotonic() - started))
                         try:
-                            proc.wait(timeout=max(1, args.seconds - capture_after - 3))
+                            proc.wait(timeout=max(1, remaining - 10))
                         except subprocess.TimeoutExpired:
-                            timed_out = True
-                            proc.kill()
-                            proc.wait()
+                            if screenshot_error is None:
+                                capture = subprocess.run(
+                                    ["import", "-window", "root", str(final_screenshot)],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=15,
+                                )
+                                if capture.returncode != 0:
+                                    screenshot_error = (
+                                        capture.stderr.strip()
+                                        or "Final gameplay screen capture failed"
+                                    )
+                            try:
+                                proc.wait(timeout=10)
+                            except subprocess.TimeoutExpired:
+                                timed_out = True
+                                proc.kill()
+                                proc.wait()
                     return_code = proc.returncode
         except OSError as exc:
             with log_path.open("a", encoding="utf-8") as log_file:
@@ -186,6 +244,8 @@ def main() -> int:
             or not screenshot.is_file()
             or not singleplayer_screenshot.is_file()
             or not create_world_screenshot.is_file()
+            or not gameplay_screenshot.is_file()
+            or (timed_out and not final_screenshot.is_file())
         ):
             status, reason = "FAIL", screenshot_error or "No rendered screen was captured"
         else:
@@ -204,8 +264,8 @@ def main() -> int:
     summary = "## Crafted private desktop smoke tests\n\n"
     summary += (
         "This checks that the main menu renders, Singleplayer opens world selection, "
-        "and Create New World changes the screen. It does not establish world "
-        "loading or full gameplay.\n\n"
+        "Create New World opens setup, and world creation enters gameplay. It does "
+        "not establish terrain correctness or full control coverage.\n\n"
     )
     summary += "| Game | Result | Note |\n| --- | --- | --- |\n"
     for game, status, reason in results:
