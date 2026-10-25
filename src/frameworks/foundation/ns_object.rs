@@ -426,7 +426,7 @@ forUndefinedKey:(id)key { // NSString*
     assert!(!sel.is_null());
     let thread_id = super::ns_thread::thread_id_for_ns_thread(env, thread)
         .expect("performSelector:onThread: called with a thread that is not running");
-    if thread_id == env.current_thread {
+    if thread_id == env.current_thread && wait {
         if sel.as_str(&env.mem).ends_with(':') {
             () = msg_send_no_type_checking(env, (this, sel, arg));
         } else {

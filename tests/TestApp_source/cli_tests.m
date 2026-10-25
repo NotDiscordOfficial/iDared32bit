@@ -6223,9 +6223,11 @@ int test_NSObject_performSelector_onThread() {
   InvocationTarget *target = [[InvocationTarget new] autorelease];
   id value = [[NSObject new] autorelease];
   NSThread *thread = [NSThread currentThread];
-  SEL selector = NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
-  NSArray *modes = [NSArray arrayWithObjects:
-      [NSString stringWithUTF8String:"NSDefaultRunLoopMode"], nil];
+  SEL selector =
+      NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
+  NSArray *modes =
+      [NSArray arrayWithObjects:[NSString stringWithUTF8String:"NSDefaultRunLoopMode"],
+                                nil];
   [target performSelector:selector
                  onThread:thread
                withObject:value
