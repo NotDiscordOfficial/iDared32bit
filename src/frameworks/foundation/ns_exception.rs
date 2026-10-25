@@ -282,12 +282,17 @@ pub const CONSTANTS: ConstantExports = &[
 ];
 
 fn NSSetUncaughtExceptionHandler(env: &mut Environment, handler: MutVoidPtr) {
-    env.framework_state.foundation.ns_exception.uncaught_exception_handler =
-        (!handler.is_null()).then_some(handler);
+    env.framework_state
+        .foundation
+        .ns_exception
+        .uncaught_exception_handler = (!handler.is_null()).then_some(handler);
 }
 
 fn NSGetUncaughtExceptionHandler(env: &mut Environment) -> MutVoidPtr {
-    env.framework_state.foundation.ns_exception.uncaught_exception_handler
+    env.framework_state
+        .foundation
+        .ns_exception
+        .uncaught_exception_handler
         .unwrap_or_else(MutVoidPtr::null)
 }
 
