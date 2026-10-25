@@ -6218,6 +6218,28 @@ int test_NSUncaughtExceptionHandler() {
   return NSGetUncaughtExceptionHandler() == NULL ? 0 : -3;
 }
 
+int test_NSSet_copy_semantics() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  id first = [[NSString stringWithUTF8String:"first"] retain];
+  id second = [[NSString stringWithUTF8String:"second"] retain];
+  id third = [[NSString stringWithUTF8String:"third"] retain];
+  NSSet *immutable = [NSSet setWithObjects:first, nil];
+  NSMutableSet *mutable = [immutable mutableCopyWithZone:NULL];
+  [mutable addObject:second];
+  NSSet *copy = [mutable copyWithZone:NULL];
+  [mutable addObject:third];
+  BOOL passed = [immutable count] == 1 && [mutable count] == 3 &&
+                [copy count] == 2 && ![immutable containsObject:second] &&
+                ![copy containsObject:third];
+  [copy release];
+  [mutable release];
+  [third release];
+  [second release];
+  [first release];
+  [pool drain];
+  return passed ? 0 : -1;
+}
+
 int test_NSObject_performSelector_onThread() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   InvocationTarget *target = [[InvocationTarget new] autorelease];
@@ -7416,6 +7438,7 @@ struct {
     FUNC_DEF(test_NSInvocationOperation),
     FUNC_DEF(test_NSMutableDictionary_single_object_factory),
     FUNC_DEF(test_NSUncaughtExceptionHandler),
+    FUNC_DEF(test_NSSet_copy_semantics),
     FUNC_DEF(test_NSObject_performSelector_onThread),
     FUNC_DEF(test_NSURLRequest_creation_without_network_access),
     FUNC_DEF(test_NSInvocation_retainArguments),

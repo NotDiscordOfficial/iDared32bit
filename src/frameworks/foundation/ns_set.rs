@@ -72,6 +72,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     retain(env, this)
 }
 
+- (id)mutableCopyWithZone:(NSZonePtr)zone {
+    let objects: id = msg![env; this allObjects];
+    let copy: id = msg_class![env; NSMutableSet allocWithZone:zone];
+    msg![env; copy initWithArray:objects]
+}
+
 - (bool)containsObject:(id)object {
     let enumerator: id = msg![env; this objectEnumerator];
     loop {
@@ -117,7 +123,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
-    todo!(); // TODO: this should produce an immutable copy
+    let objects: id = msg![env; this allObjects];
+    let copy: id = msg_class![env; NSSet allocWithZone:_zone];
+    msg![env; copy initWithArray:objects]
 }
 
 @end
