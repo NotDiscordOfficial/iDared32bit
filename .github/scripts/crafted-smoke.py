@@ -6,11 +6,13 @@ recognised emulator panic during the observation window. It does NOT establish
 visual correctness, gameplay, input, audio, or iOS-host compatibility.
 """
 import argparse
+import hashlib
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 PANIC = re.compile(
     r"(?:Panic at |Call to unimplemented function|thread '.*' panicked at|"
@@ -44,7 +46,8 @@ def main() -> int:
         env = os.environ.copy()
         env.setdefault("SDL_AUDIODRIVER", "dummy")
         timed_out = False
-        screenshot = args.screenshots / f"game-{index}.png"
+        screenshot = args.screenshots / f"game-{index}-main-menu.png"
+        singleplayer_screenshot = args.screenshots / f"game-{index}-singleplayer.png"
         screenshot_error = None
         log_path = args.logs / f"game-{index}.log"
         try:
@@ -73,8 +76,52 @@ def main() -> int:
                             capture = None
                         if capture is not None and capture.returncode != 0:
                             screenshot_error = capture.stderr.strip() or "Image capture failed"
+                        if screenshot_error is None and screenshot.is_file():
+                            try:
+                                geometry = subprocess.check_output(
+                                    ["xdotool", "getdisplaygeometry"],
+                                    text=True,
+                                    timeout=5,
+                                )
+                                screen_width, screen_height = map(int, geometry.split())
+                                subprocess.run(
+                                    [
+                                        "xdotool",
+                                        "mousemove",
+                                        "--sync",
+                                        str(screen_width // 2),
+                                        str(screen_height // 2 - 4),
+                                        "click",
+                                        "1",
+                                    ],
+                                    check=True,
+                                    timeout=5,
+                                )
+                                time.sleep(3)
+                                capture = subprocess.run(
+                                    [
+                                        "import",
+                                        "-window",
+                                        "root",
+                                        str(singleplayer_screenshot),
+                                    ],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=15,
+                                )
+                                if capture.returncode != 0:
+                                    screenshot_error = (
+                                        capture.stderr.strip()
+                                        or "Singleplayer screen capture failed"
+                                    )
+                                elif hashlib.sha256(screenshot.read_bytes()).digest() == hashlib.sha256(
+                                    singleplayer_screenshot.read_bytes()
+                                ).digest():
+                                    screenshot_error = "Singleplayer tap did not change the rendered screen"
+                            except (OSError, subprocess.SubprocessError, ValueError) as exc:
+                                screenshot_error = f"Unable to exercise Singleplayer control: {exc}"
                         try:
-                            proc.wait(timeout=max(1, args.seconds - capture_after))
+                            proc.wait(timeout=max(1, args.seconds - capture_after - 3))
                         except subprocess.TimeoutExpired:
                             timed_out = True
                             proc.kill()
@@ -94,7 +141,7 @@ def main() -> int:
             status, reason = "BLOCKED", "Guest CPU execution not reached; check graphics/host setup"
         elif return_code not in (0, None) and not timed_out:
             status, reason = "FAIL", f"Process exited with code {return_code}"
-        elif screenshot_error or not screenshot.is_file():
+        elif screenshot_error or not screenshot.is_file() or not singleplayer_screenshot.is_file():
             status, reason = "FAIL", screenshot_error or "No rendered screen was captured"
         else:
             status, reason = "SMOKE PASS", (
@@ -103,13 +150,17 @@ def main() -> int:
                 else "No detected panic during observation window (process was time-limited)"
             )
         print(
-            f"  {status}: {reason}; diagnostic log: {log_path}; screen: {screenshot}",
+            f"  {status}: {reason}; diagnostic log: {log_path}; "
+            f"screens: {screenshot}, {singleplayer_screenshot}",
             flush=True,
         )
         results.append((game.name, status, reason))
 
     summary = "## Crafted private desktop smoke tests\n\n"
-    summary += "This only checks startup, not actual game playability on iOS.\n\n"
+    summary += (
+        "This checks that the main menu renders and the Singleplayer tap changes "
+        "the screen. It does not establish world loading or full gameplay.\n\n"
+    )
     summary += "| Game | Result | Note |\n| --- | --- | --- |\n"
     for game, status, reason in results:
         summary += f"| {game.replace('|', ' ')} | {status} | {reason} |\n"
