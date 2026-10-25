@@ -168,7 +168,21 @@ typedef double NSTimeInterval;
 - (void)invalidate;
 @end
 
+@class NSData;
+
 @interface NSURL : NSObject
++ (instancetype)URLWithString:(NSString *)URLString;
+@end
+
+@interface NSURLRequest : NSObject
+- (instancetype)initWithURL:(NSURL *)url;
+- (NSURL *)URL;
+@end
+
+@interface NSMutableURLRequest : NSURLRequest
+- (void)setHTTPMethod:(NSString *)method;
+- (void)setHTTPBody:(NSData *)body;
+- (void)setValue:(NSString *)value forHTTPHeaderField:(NSString *)field;
 @end
 
 @interface NSData : NSObject

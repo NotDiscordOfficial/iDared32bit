@@ -6196,6 +6196,41 @@ int test_NSInvocationOperation() {
   return 0;
 }
 
+int test_NSURLRequest_creation_without_network_access() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSString *URLString =
+      [NSString stringWithUTF8String:"https://example.invalid/compatibility-test"];
+  NSURL *url = [NSURL URLWithString:URLString];
+  if (url == nil) {
+    [pool drain];
+    return -1;
+  }
+
+  NSURLRequest *request = [[NSURLRequest alloc] initWithURL:url];
+  if (request == nil || [request URL] == nil) {
+    [request release];
+    [pool drain];
+    return -2;
+  }
+
+  NSMutableURLRequest *mutableRequest =
+      [[NSMutableURLRequest alloc] initWithURL:url];
+  if (mutableRequest == nil || [mutableRequest URL] == nil) {
+    [mutableRequest release];
+    [request release];
+    [pool drain];
+    return -3;
+  }
+  [mutableRequest setHTTPMethod:[NSString stringWithUTF8String:"POST"]];
+  [mutableRequest setValue:[NSString stringWithUTF8String:"application/json"]
+        forHTTPHeaderField:[NSString stringWithUTF8String:"Content-Type"]];
+
+  [mutableRequest release];
+  [request release];
+  [pool drain];
+  return 0;
+}
+
 int test_NSInvocation_retainArguments() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
 
@@ -7277,6 +7312,7 @@ struct {
     FUNC_DEF(test_NSInvocation),
     FUNC_DEF(test_NSInvocation_invokeWithTarget),
     FUNC_DEF(test_NSInvocationOperation),
+    FUNC_DEF(test_NSURLRequest_creation_without_network_access),
     FUNC_DEF(test_NSInvocation_retainArguments),
     FUNC_DEF(test_NSInvocation_pointer),
     FUNC_DEF(test_Initialize),

@@ -83,19 +83,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         timeout_interval,
     );
 
-    // Preserving old behaviour
-    if !env.options.network_access {
-        log_dbg!(
-            "Network access is disabled, [(NSURLRequest *){:?} initWithURL:{} cachePolicy:{} timeoutInterval:{}] -> nil",
-            this,
-            to_rust_string(env, url_desc),
-            cache_policy,
-            timeout_interval,
-        );
-        release(env, this);
-        return nil;
-    }
-
     let url_copy = msg![env; url copy];
     env.objc.borrow_mut::<NSURLRequestHostObject>(this).url = url_copy;
     env.objc.borrow_mut::<NSURLRequestHostObject>(this).cache_policy = cache_policy;
@@ -114,17 +101,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         this,
         to_rust_string(env, url_desc)
     );
-
-    // Preserving old behaviour
-    if !env.options.network_access {
-        log_dbg!(
-            "Network access is disabled, [(NSURLRequest *){:?} initWithURL:{}] -> nil",
-            this,
-            to_rust_string(env, url_desc)
-        );
-        release(env, this);
-        return nil;
-    }
 
     let url_copy = msg![env; url copy];
     env.objc.borrow_mut::<NSURLRequestHostObject>(this).url = url_copy;
