@@ -126,14 +126,14 @@ void (*method_getImplementation(Method m))(void);
 @end
 
 @interface NSSet<ObjectType> : NSObject
- (instancetype)setWithObjects:(ObjectType)firstObject, ...;
++ (instancetype)setWithObjects:(ObjectType)firstObject, ...;
 - (NSUInteger)count;
 - (BOOL)containsObject:(ObjectType)object;
 - (id)mutableCopyWithZone:(void *)zone;
 - (ObjectType)anyObject;
 @end
 
-@interface NSMutableSet<ObjectType> : NSSet<ObjectType>
+@interface NSMutableSet : NSSet
 - (void)addObject:(ObjectType)object;
 - (id)copyWithZone:(void *)zone;
 @end
