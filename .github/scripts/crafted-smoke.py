@@ -25,6 +25,7 @@ def main() -> int:
     parser.add_argument("--emulator", type=Path, required=True)
     parser.add_argument("--games", type=Path, required=True)
     parser.add_argument("--logs", type=Path, required=True)
+    parser.add_argument("--screenshots", type=Path, required=True)
     parser.add_argument("--seconds", type=int, default=30)
     args = parser.parse_args()
 
@@ -35,6 +36,7 @@ def main() -> int:
         parser.error("No IPA files found in the private test archive")
 
     args.logs.mkdir(parents=True, exist_ok=True)
+    args.screenshots.mkdir(parents=True, exist_ok=True)
     results = []
     for index, game in enumerate(games, 1):
         print(f"Smoke-testing {game.name} ({index}/{len(games)})", flush=True)
@@ -42,30 +44,48 @@ def main() -> int:
         env = os.environ.copy()
         env.setdefault("SDL_AUDIODRIVER", "dummy")
         timed_out = False
-        try:
-            with subprocess.Popen(
-                cmd,
-                cwd=Path.cwd(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-                start_new_session=True,
-            ) as proc:
-                try:
-                    output, _ = proc.communicate(timeout=args.seconds)
-                except subprocess.TimeoutExpired:
-                    timed_out = True
-                    proc.kill()
-                    output, _ = proc.communicate()
-                return_code = proc.returncode
-        except OSError as exc:
-            output, return_code = f"Unable to launch emulator: {exc}\n", -1
-
+        screenshot = args.screenshots / f"game-{index}.png"
+        screenshot_error = None
         log_path = args.logs / f"game-{index}.log"
-        log_path.write_text(output, encoding="utf-8")
+        try:
+            with log_path.open("w", encoding="utf-8") as log_file:
+                with subprocess.Popen(
+                    cmd,
+                    cwd=Path.cwd(),
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                    start_new_session=True,
+                ) as proc:
+                    capture_after = min(8, max(1, args.seconds // 3))
+                    try:
+                        proc.wait(timeout=capture_after)
+                    except subprocess.TimeoutExpired:
+                        try:
+                            capture = subprocess.run(
+                                ["import", "-window", "root", str(screenshot)],
+                                capture_output=True,
+                                text=True,
+                                timeout=15,
+                            )
+                        except subprocess.TimeoutExpired:
+                            screenshot_error = "Timed out capturing rendered screen"
+                            capture = None
+                        if capture is not None and capture.returncode != 0:
+                            screenshot_error = capture.stderr.strip() or "Image capture failed"
+                        try:
+                            proc.wait(timeout=max(1, args.seconds - capture_after))
+                        except subprocess.TimeoutExpired:
+                            timed_out = True
+                            proc.kill()
+                            proc.wait()
+                    return_code = proc.returncode
+        except OSError as exc:
+            with log_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(f"Unable to launch emulator: {exc}\n")
+            return_code = -1
+
+        output = log_path.read_text(encoding="utf-8", errors="replace")
         has_cpu = CPU_STARTED in output
         panic = PANIC.search(output)
         if panic:
@@ -74,13 +94,18 @@ def main() -> int:
             status, reason = "BLOCKED", "Guest CPU execution not reached; check graphics/host setup"
         elif return_code not in (0, None) and not timed_out:
             status, reason = "FAIL", f"Process exited with code {return_code}"
+        elif screenshot_error or not screenshot.is_file():
+            status, reason = "FAIL", screenshot_error or "No rendered screen was captured"
         else:
             status, reason = "SMOKE PASS", (
                 "No detected panic during observation window (process ended normally)"
                 if not timed_out
                 else "No detected panic during observation window (process was time-limited)"
             )
-        print(f"  {status}: {reason}; diagnostic log: {log_path}", flush=True)
+        print(
+            f"  {status}: {reason}; diagnostic log: {log_path}; screen: {screenshot}",
+            flush=True,
+        )
         results.append((game.name, status, reason))
 
     summary = "## Crafted private desktop smoke tests\n\n"
