@@ -6255,13 +6255,13 @@ int test_NSFileManager_contentsOfDirectory_error() {
 int test_NSFileManager_createDirectory_error() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   NSFileManager *fileManager = [NSFileManager defaultManager];
-  NSString *path = [NSString
-      stringWithUTF8String:"/__touchhle_missing_parent__/child"];
+  NSString *path =
+      [NSString stringWithUTF8String:"/__touchhle_missing_parent__/child"];
   NSError *error = nil;
   BOOL created = [fileManager createDirectoryAtPath:path
-                         withIntermediateDirectories:NO
-                                          attributes:nil
-                                               error:&error];
+                        withIntermediateDirectories:NO
+                                         attributes:nil
+                                              error:&error];
   BOOL passed = !created && error != nil && [error code] == 4;
   [pool drain];
   return passed ? 0 : -1;
