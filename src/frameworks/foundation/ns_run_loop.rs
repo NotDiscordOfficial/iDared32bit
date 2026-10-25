@@ -510,8 +510,7 @@ pub fn run_run_loop(
                         && (modes.is_null()
                             || msg![env; modes containsObject:default_mode]
                             || msg![env; modes containsObject:common_mode])
-                })
-                .map(|(index, _)| index);
+                });
 
             match to_run {
                 Some(index) => {
