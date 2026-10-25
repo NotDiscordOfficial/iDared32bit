@@ -48,6 +48,7 @@ def main() -> int:
         timed_out = False
         screenshot = args.screenshots / f"game-{index}-main-menu.png"
         singleplayer_screenshot = args.screenshots / f"game-{index}-singleplayer.png"
+        create_world_screenshot = args.screenshots / f"game-{index}-create-world.png"
         screenshot_error = None
         log_path = args.logs / f"game-{index}.log"
         try:
@@ -118,6 +119,45 @@ def main() -> int:
                                     singleplayer_screenshot.read_bytes()
                                 ).digest():
                                     screenshot_error = "Singleplayer tap did not change the rendered screen"
+                                if screenshot_error is None:
+                                    subprocess.run(
+                                        [
+                                            "xdotool",
+                                            "mousemove",
+                                            "--sync",
+                                            str(screen_width // 2 + screen_width // 30),
+                                            str(screen_height * 2 // 3),
+                                            "click",
+                                            "1",
+                                        ],
+                                        check=True,
+                                        timeout=5,
+                                    )
+                                    time.sleep(3)
+                                    capture = subprocess.run(
+                                        [
+                                            "import",
+                                            "-window",
+                                            "root",
+                                            str(create_world_screenshot),
+                                        ],
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=15,
+                                    )
+                                    if capture.returncode != 0:
+                                        screenshot_error = (
+                                            capture.stderr.strip()
+                                            or "Create New World screen capture failed"
+                                        )
+                                    elif hashlib.sha256(
+                                        singleplayer_screenshot.read_bytes()
+                                    ).digest() == hashlib.sha256(
+                                        create_world_screenshot.read_bytes()
+                                    ).digest():
+                                        screenshot_error = (
+                                            "Create New World tap did not change the rendered screen"
+                                        )
                             except (OSError, subprocess.SubprocessError, ValueError) as exc:
                                 screenshot_error = f"Unable to exercise Singleplayer control: {exc}"
                         try:
@@ -141,7 +181,12 @@ def main() -> int:
             status, reason = "BLOCKED", "Guest CPU execution not reached; check graphics/host setup"
         elif return_code not in (0, None) and not timed_out:
             status, reason = "FAIL", f"Process exited with code {return_code}"
-        elif screenshot_error or not screenshot.is_file() or not singleplayer_screenshot.is_file():
+        elif (
+            screenshot_error
+            or not screenshot.is_file()
+            or not singleplayer_screenshot.is_file()
+            or not create_world_screenshot.is_file()
+        ):
             status, reason = "FAIL", screenshot_error or "No rendered screen was captured"
         else:
             status, reason = "SMOKE PASS", (
@@ -158,8 +203,9 @@ def main() -> int:
 
     summary = "## Crafted private desktop smoke tests\n\n"
     summary += (
-        "This checks that the main menu renders and the Singleplayer tap changes "
-        "the screen. It does not establish world loading or full gameplay.\n\n"
+        "This checks that the main menu renders, Singleplayer opens world selection, "
+        "and Create New World changes the screen. It does not establish world "
+        "loading or full gameplay.\n\n"
     )
     summary += "| Game | Result | Note |\n| --- | --- | --- |\n"
     for game, status, reason in results:
