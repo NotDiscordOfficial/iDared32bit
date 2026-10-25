@@ -178,7 +178,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         // TODO: mutualize with fileExistsAtPath:
         let path = ns_string::to_rust_string(env, path); // TODO: avoid copy
         let guest_path = GuestPath::new(&path);
-        (env.fs.exists(guest_path), !env.fs.is_file(guest_path))
+        let exists = env.fs.exists(guest_path);
+        (exists, exists && !env.fs.is_file(guest_path))
     };
 
     if !is_dir.is_null() {

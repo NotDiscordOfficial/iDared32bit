@@ -6252,6 +6252,18 @@ int test_NSFileManager_contentsOfDirectory_error() {
   return passed ? 0 : -1;
 }
 
+int test_NSFileManager_missingPath_isNotDirectory() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  NSString *path =
+      [NSString stringWithUTF8String:"/__touchhle_missing_test_directory__"];
+  BOOL isDirectory = YES;
+  BOOL exists = [fileManager fileExistsAtPath:path isDirectory:&isDirectory];
+  BOOL passed = !exists && !isDirectory;
+  [pool drain];
+  return passed ? 0 : -1;
+}
+
 int test_NSFileManager_createDirectory_error() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   NSFileManager *fileManager = [NSFileManager defaultManager];
@@ -7482,6 +7494,7 @@ struct {
     FUNC_DEF(test_NSUncaughtExceptionHandler),
     FUNC_DEF(test_NSSet_copy_semantics),
     FUNC_DEF(test_NSFileManager_contentsOfDirectory_error),
+    FUNC_DEF(test_NSFileManager_missingPath_isNotDirectory),
     FUNC_DEF(test_NSFileManager_createDirectory_error),
     FUNC_DEF(test_NSString_writeToFile_error),
     FUNC_DEF(test_NSObject_performSelector_onThread),
