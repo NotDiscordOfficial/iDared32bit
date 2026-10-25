@@ -6252,6 +6252,21 @@ int test_NSFileManager_contentsOfDirectory_error() {
   return passed ? 0 : -1;
 }
 
+int test_NSFileManager_createDirectory_error() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  NSString *path = [NSString
+      stringWithUTF8String:"/__touchhle_missing_parent__/child"];
+  NSError *error = nil;
+  BOOL created = [fileManager createDirectoryAtPath:path
+                         withIntermediateDirectories:NO
+                                          attributes:nil
+                                               error:&error];
+  BOOL passed = !created && error != nil && [error code] == 4;
+  [pool drain];
+  return passed ? 0 : -1;
+}
+
 int test_NSObject_performSelector_onThread() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   InvocationTarget *target = [[InvocationTarget new] autorelease];
@@ -7452,6 +7467,7 @@ struct {
     FUNC_DEF(test_NSUncaughtExceptionHandler),
     FUNC_DEF(test_NSSet_copy_semantics),
     FUNC_DEF(test_NSFileManager_contentsOfDirectory_error),
+    FUNC_DEF(test_NSFileManager_createDirectory_error),
     FUNC_DEF(test_NSObject_performSelector_onThread),
     FUNC_DEF(test_NSURLRequest_creation_without_network_access),
     FUNC_DEF(test_NSInvocation_retainArguments),

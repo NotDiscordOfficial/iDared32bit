@@ -5,7 +5,7 @@
  */
 //! `NSFileManager` etc.
 
-use super::{ns_array, ns_string, NSUInteger};
+use super::{ns_array, ns_string, NSInteger, NSUInteger};
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant};
 use crate::frameworks::foundation::ns_error::{NSCocoaErrorDomain, NSFileReadNoSuchFileError};
 use crate::frameworks::foundation::ns_string::get_static_str;
@@ -24,6 +24,23 @@ const NSCachesDirectory: NSSearchPathDirectory = 13;
 
 type NSSearchPathDomainMask = NSUInteger;
 const NSUserDomainMask: NSSearchPathDomainMask = 1;
+
+const NSFileReadUnknownError: NSInteger = 256;
+const NSFileNoSuchFileError: NSInteger = 4;
+const NSFileWriteUnknownError: NSInteger = 512;
+const NSFileWriteNoPermissionError: NSInteger = 513;
+const NSFileWriteFileExistsError: NSInteger = 516;
+
+fn set_file_manager_error(env: &mut Environment, out_error: MutPtr<id>, code: NSInteger) {
+    if out_error.is_null() {
+        return;
+    }
+    let domain = get_static_str(env, NSCocoaErrorDomain);
+    let error = msg_class![env; NSError alloc];
+    let error = msg![env; error initWithDomain:domain code:code userInfo:nil];
+    autorelease(env, error);
+    env.mem.write(out_error, error);
+}
 
 pub const NSFileModificationDate: &str = "NSFileModificationDate";
 pub const NSFileSize: &str = "NSFileSize";
@@ -254,12 +271,18 @@ pub const CLASSES: ClassExports = objc_classes! {
             true
         }
         Err(err) => {
-            assert!(error.is_null()); // TODO
             log!(
                 "Warning: createDirectoryAtPath {} failed with {:?}, returning false",
                 path_str,
-                err,
+                err
             );
+            let code = match &err {
+                FsError::DoesNotExist | FsError::NonexistentParentDir => NSFileNoSuchFileError,
+                FsError::AccessDenied | FsError::ReadonlyParentDir => NSFileWriteNoPermissionError,
+                FsError::AlreadyExist => NSFileWriteFileExistsError,
+                _ => NSFileWriteUnknownError,
+            };
+            set_file_manager_error(env, error, code);
             false
         }
     }
@@ -299,15 +322,14 @@ pub const CLASSES: ClassExports = objc_classes! {
                           error:(MutPtr<id>)error { // NSError**
     let contents: id = msg![env; this directoryContentsAtPath:path];
     if contents == nil && !error.is_null() {
-        // directoryContentsAtPath: has already discarded the underlying
-        // filesystem error. A failed lookup is reported as Cocoa's standard
-        // file-read error so callers using the NSError** form can handle a
-        // missing or unreadable directory without crashing the host.
-        let domain = get_static_str(env, NSCocoaErrorDomain);
-        let error_object = msg_class![env; NSError alloc];
-        let error_object = msg![env; error_object initWithDomain:domain code:NSFileReadNoSuchFileError userInfo:nil];
-        autorelease(env, error_object);
-        env.mem.write(error, error_object);
+        // directoryContentsAtPath: discards the underlying filesystem error.
+        let path = ns_string::to_rust_string(env, path);
+        let code = if env.fs.exists(GuestPath::new(&path)) {
+            NSFileReadUnknownError
+        } else {
+            NSFileReadNoSuchFileError
+        };
+        set_file_manager_error(env, error, code);
     }
     contents
 }
