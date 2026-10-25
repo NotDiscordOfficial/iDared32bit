@@ -6243,8 +6243,8 @@ int test_NSSet_copy_semantics() {
 int test_NSFileManager_contentsOfDirectory_error() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   NSFileManager *fileManager = [NSFileManager defaultManager];
-  NSString *path = [NSString stringWithUTF8String:
-                              "/__touchhle_missing_test_directory__"];
+  NSString *path =
+      [NSString stringWithUTF8String:"/__touchhle_missing_test_directory__"];
   NSError *error = nil;
   NSArray *contents = [fileManager contentsOfDirectoryAtPath:path error:&error];
   BOOL passed = contents == nil && error != nil && [error code] == 260;
