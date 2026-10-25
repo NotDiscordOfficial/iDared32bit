@@ -93,6 +93,10 @@ pub struct ObjC {
     /// Type information isn't part of the `objc_msgSend` ABI, so an alternative
     /// channel is needed.
     message_type_info: Option<(std::any::TypeId, &'static str)>,
+
+    /// Bounded trace of messages sent to nil or placeholder classes. This is
+    /// retained for panic diagnostics because either can silently return nil.
+    recent_fallback_messages: Vec<String>,
 }
 
 impl ObjC {
@@ -105,7 +109,21 @@ impl ObjC {
             initializer_threads: HashMap::new(),
             method_handles: HashMap::new(),
             message_type_info: None,
+            recent_fallback_messages: Vec::new(),
         }
+    }
+
+    pub(crate) fn record_fallback_message(&mut self, receiver: &str, selector: &str) {
+        const CAPACITY: usize = 128;
+        if self.recent_fallback_messages.len() == CAPACITY {
+            self.recent_fallback_messages.remove(0);
+        }
+        self.recent_fallback_messages
+            .push(format!("{receiver} {selector}"));
+    }
+
+    pub(crate) fn recent_fallback_messages(&self) -> &[String] {
+        &self.recent_fallback_messages
     }
 }
 

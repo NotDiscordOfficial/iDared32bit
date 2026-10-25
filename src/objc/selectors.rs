@@ -305,6 +305,18 @@ mod tests {
         );
         assert_eq!(objc.selector_name_for_pointer(0x5678), None);
     }
+
+    #[test]
+    fn keeps_fallback_message_trace_bounded() {
+        let mut objc = ObjC::new();
+        for index in 0..129 {
+            objc.record_fallback_message("nil", &format!("selector{index}"));
+        }
+
+        assert_eq!(objc.recent_fallback_messages().len(), 128);
+        assert_eq!(objc.recent_fallback_messages()[0], "nil selector1");
+        assert_eq!(objc.recent_fallback_messages()[127], "nil selector128");
+    }
 }
 
 /// Standard Objective-C runtime function for selector registration.

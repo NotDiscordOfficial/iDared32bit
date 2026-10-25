@@ -187,6 +187,8 @@ fn objc_msgSend_inner(
     if receiver == nil {
         // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjectiveC/Chapters/ocObjectsClasses.html#//apple_ref/doc/uid/TP30001163-CH11-SW7
         log_dbg!("[nil {}]", selector.as_str(&env.mem));
+        let selector_name = selector.as_str(&env.mem).to_owned();
+        env.objc.record_fallback_message("nil", &selector_name);
         env.cpu.regs_mut()[0..2].fill(0);
         return;
     }
@@ -301,6 +303,10 @@ Type mismatch when sending message {} to {:?}!
             is_metaclass,
         }) = host_object.as_any().downcast_ref()
         {
+            let class_label = format!(
+                "placeholder {}class {name}",
+                if is_metaclass { "meta" } else { "" }
+            );
             log!(
                 "Call to faked class \"{}\" ({:?}) {} method \"{}\". Behaving as if message was sent to nil.",
                 name,
@@ -308,6 +314,8 @@ Type mismatch when sending message {} to {:?}!
                 if is_metaclass { "class" } else { "instance" },
                 selector.as_str(&env.mem),
             );
+            env.objc
+                .record_fallback_message(&class_label, selector.as_str(&env.mem));
             env.cpu.regs_mut()[0..2].fill(0);
             return;
         } else {

@@ -1085,6 +1085,13 @@ impl Environment {
                 );
             }
         }
+        let fallback_messages = self.objc.recent_fallback_messages();
+        if !fallback_messages.is_empty() {
+            echo_no_panic!("Recent Objective-C messages resolved through nil fallbacks:");
+            for message in fallback_messages.iter().rev().take(64).rev() {
+                echo_no_panic!("  {message}");
+            }
+        }
         for (tid, thread) in self.threads.iter().enumerate() {
             if thread.is_alive() && tid != self.current_thread {
                 echo_no_panic!(
