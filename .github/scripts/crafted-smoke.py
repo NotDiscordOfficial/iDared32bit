@@ -57,7 +57,7 @@ def main() -> int:
                     env=env,
                     start_new_session=True,
                 ) as proc:
-                    capture_after = min(8, max(1, args.seconds // 3))
+                    capture_after = min(45, max(1, args.seconds * 2 // 3))
                     try:
                         proc.wait(timeout=capture_after)
                     except subprocess.TimeoutExpired:

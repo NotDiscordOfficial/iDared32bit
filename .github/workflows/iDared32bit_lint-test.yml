@@ -374,7 +374,7 @@ jobs:
               --games "$RUNNER_TEMP/crafted-games" \
               --logs "$RUNNER_TEMP/crafted-logs" \
               --screenshots "$RUNNER_TEMP/crafted-screenshots" \
-              --seconds 30
+              --seconds 75
 
       - name: Save emulator logs (never the game IPAs)
         if: always()
