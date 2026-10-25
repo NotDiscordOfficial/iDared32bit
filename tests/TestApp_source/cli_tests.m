@@ -6202,6 +6202,22 @@ int test_NSMutableDictionary_single_object_factory() {
   return passed ? 0 : -1;
 }
 
+typedef void NSUncaughtExceptionHandler(id exception);
+extern NSUncaughtExceptionHandler *NSGetUncaughtExceptionHandler(void);
+extern void NSSetUncaughtExceptionHandler(NSUncaughtExceptionHandler *);
+
+static void test_uncaught_exception_handler(id exception) { (void)exception; }
+
+int test_NSUncaughtExceptionHandler() {
+  if (NSGetUncaughtExceptionHandler() != NULL)
+    return -1;
+  NSSetUncaughtExceptionHandler(test_uncaught_exception_handler);
+  if (NSGetUncaughtExceptionHandler() != test_uncaught_exception_handler)
+    return -2;
+  NSSetUncaughtExceptionHandler(NULL);
+  return NSGetUncaughtExceptionHandler() == NULL ? 0 : -3;
+}
+
 int test_NSInvocationOperation() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   InvocationTarget *target = [[InvocationTarget new] autorelease];
@@ -7379,6 +7395,7 @@ struct {
     FUNC_DEF(test_NSInvocation_invokeWithTarget),
     FUNC_DEF(test_NSInvocationOperation),
     FUNC_DEF(test_NSMutableDictionary_single_object_factory),
+    FUNC_DEF(test_NSUncaughtExceptionHandler),
     FUNC_DEF(test_NSURLRequest_creation_without_network_access),
     FUNC_DEF(test_NSInvocation_retainArguments),
     FUNC_DEF(test_NSInvocation_pointer),

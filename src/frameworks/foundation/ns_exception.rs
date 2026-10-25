@@ -8,6 +8,11 @@ use crate::dyld::{ConstantExports, FunctionExports, HostConstant};
 use crate::mem::MutVoidPtr;
 use crate::{export_c_func, Environment};
 
+#[derive(Default)]
+pub struct State {
+    uncaught_exception_handler: Option<MutVoidPtr>,
+}
+
 // All constants are NSExceptionName
 pub const CONSTANTS: ConstantExports = &[
     (
@@ -276,13 +281,17 @@ pub const CONSTANTS: ConstantExports = &[
     ),
 ];
 
-/// This exception handler is supposed to do last-minute logging before the
-/// program terminates. For our purposes, it's completely safe to ignore that.
-fn NSSetUncaughtExceptionHandler(_env: &mut Environment, handler: MutVoidPtr) {
-    log!(
-        "TODO: Ignoring uncaught exception handler at address {:?}",
-        handler
-    );
+fn NSSetUncaughtExceptionHandler(env: &mut Environment, handler: MutVoidPtr) {
+    env.framework_state.foundation.ns_exception.uncaught_exception_handler =
+        (!handler.is_null()).then_some(handler);
 }
 
-pub const FUNCTIONS: FunctionExports = &[export_c_func!(NSSetUncaughtExceptionHandler(_))];
+fn NSGetUncaughtExceptionHandler(env: &mut Environment) -> MutVoidPtr {
+    env.framework_state.foundation.ns_exception.uncaught_exception_handler
+        .unwrap_or_else(MutVoidPtr::null)
+}
+
+pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(NSGetUncaughtExceptionHandler()),
+    export_c_func!(NSSetUncaughtExceptionHandler(_)),
+];
