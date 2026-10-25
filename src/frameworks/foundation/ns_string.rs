@@ -1614,7 +1614,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         if !error.is_null() {
             let domain = get_static_str(env, crate::frameworks::foundation::ns_error::NSCocoaErrorDomain);
             let ns_error = msg_class![env; NSError alloc];
-            let ns_error = msg![env; ns_error initWithDomain:domain code:crate::frameworks::foundation::ns_error::NSFileReadNoSuchFileError userInfo:nil];
+            let code = crate::frameworks::foundation::ns_error::NSFileReadNoSuchFileError;
+            let ns_error = msg![env; ns_error initWithDomain:domain code:code userInfo:nil];
             autorelease(env, ns_error);
             env.mem.write(error, ns_error);
         }
