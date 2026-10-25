@@ -8,8 +8,8 @@
 use super::ns_string::to_rust_string;
 use super::{NSInteger, NSRange, NSUInteger};
 use crate::frameworks::foundation::ns_error::NSCocoaErrorDomain;
-use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::ns_keyed_unarchiver::decode_current_data;
+use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::fs::{FsError, GuestPath};
 use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, MutVoidPtr, Ptr};
 use crate::objc::{
