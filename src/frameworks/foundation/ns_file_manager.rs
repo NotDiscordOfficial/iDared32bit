@@ -299,7 +299,15 @@ pub const CLASSES: ClassExports = objc_classes! {
                           error:(MutPtr<id>)error { // NSError**
     let contents: id = msg![env; this directoryContentsAtPath:path];
     if contents == nil && !error.is_null() {
-        todo!(); // TODO: create an NSError if requested
+        // directoryContentsAtPath: has already discarded the underlying
+        // filesystem error. A failed lookup is reported as Cocoa's standard
+        // file-read error so callers using the NSError** form can handle a
+        // missing or unreadable directory without crashing the host.
+        let domain = get_static_str(env, NSCocoaErrorDomain);
+        let error_object = msg_class![env; NSError alloc];
+        let error_object = msg![env; error_object initWithDomain:domain code:NSFileReadNoSuchFileError userInfo:nil];
+        autorelease(env, error_object);
+        env.mem.write(error, error_object);
     }
     contents
 }

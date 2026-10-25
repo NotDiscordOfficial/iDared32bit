@@ -6240,6 +6240,18 @@ int test_NSSet_copy_semantics() {
   return passed ? 0 : -1;
 }
 
+int test_NSFileManager_contentsOfDirectory_error() {
+  NSAutoreleasePool *pool = [NSAutoreleasePool new];
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  NSString *path = [NSString stringWithUTF8String:
+                              "/__touchhle_missing_test_directory__"];
+  NSError *error = nil;
+  NSArray *contents = [fileManager contentsOfDirectoryAtPath:path error:&error];
+  BOOL passed = contents == nil && error != nil && [error code] == 260;
+  [pool drain];
+  return passed ? 0 : -1;
+}
+
 int test_NSObject_performSelector_onThread() {
   NSAutoreleasePool *pool = [NSAutoreleasePool new];
   InvocationTarget *target = [[InvocationTarget new] autorelease];
@@ -7439,6 +7451,7 @@ struct {
     FUNC_DEF(test_NSMutableDictionary_single_object_factory),
     FUNC_DEF(test_NSUncaughtExceptionHandler),
     FUNC_DEF(test_NSSet_copy_semantics),
+    FUNC_DEF(test_NSFileManager_contentsOfDirectory_error),
     FUNC_DEF(test_NSObject_performSelector_onThread),
     FUNC_DEF(test_NSURLRequest_creation_without_network_access),
     FUNC_DEF(test_NSInvocation_retainArguments),
