@@ -1597,6 +1597,35 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this init]
 }
 
+- (id)initWithContentsOfFile:(id)path // NSString*
+                    encoding:(NSStringEncoding)encoding
+                       error:(MutPtr<id>)error { // NSError**
+    // NSMutableString is a separate class-cluster implementation in touchHLE,
+    // so it must provide the file initializer that NSString implements too.
+    if path == nil {
+        if !error.is_null() {
+            env.mem.write(error, nil);
+        }
+        release(env, this);
+        return nil;
+    }
+    let path = to_rust_string(env, path);
+    let Ok(bytes) = env.fs.read(GuestPath::new(&path)) else {
+        if !error.is_null() {
+            let domain = get_static_str(env, crate::frameworks::foundation::ns_error::NSCocoaErrorDomain);
+            let ns_error = msg_class![env; NSError alloc];
+            let ns_error = msg![env; ns_error initWithDomain:domain code:crate::frameworks::foundation::ns_error::NSFileReadNoSuchFileError userInfo:nil];
+            autorelease(env, ns_error);
+            env.mem.write(error, ns_error);
+        }
+        release(env, this);
+        return nil;
+    };
+    let host_object = StringHostObject::decode(Cow::Owned(bytes), encoding);
+    *env.objc.borrow_mut(this) = host_object;
+    this
+}
+
 - (id)initWithBytes:(ConstPtr<u8>)bytes
              length:(NSUInteger)len
            encoding:(NSStringEncoding)encoding {

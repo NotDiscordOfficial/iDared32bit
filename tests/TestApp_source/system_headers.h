@@ -152,6 +152,9 @@ enum { NSUTF8StringEncoding = 4 };
 @interface NSString : NSObject
 + (instancetype)stringWithFormat:(NSString *)format, ...;
 + (instancetype)stringWithUTF8String:(const char *)string;
+- (instancetype)initWithContentsOfFile:(NSString *)path
+                              encoding:(NSStringEncoding)encoding
+                                 error:(NSError **)error;
 + (NSString *)pathWithComponents:(NSArray *)components;
 - (NSString *)stringByReplacingOccurrencesOfString:(NSString *)target
                                         withString:(NSString *)replacement;
@@ -167,6 +170,9 @@ enum { NSUTF8StringEncoding = 4 };
               error:(NSError **)error;
 @end
 @interface NSMutableString : NSString
+- (instancetype)initWithContentsOfFile:(NSString *)path
+                              encoding:(NSStringEncoding)encoding
+                                 error:(NSError **)error;
 - (void)deleteCharactersInRange:(NSRange)range;
 @end
 
