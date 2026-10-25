@@ -606,3 +606,8 @@ fn run_loop_for_thread(env: &mut Environment, this: Class, thread_id: ThreadId) 
         .ns_run_loop
         .run_loop
 }
+
+pub(super) fn run_loop_for_thread_id(env: &mut Environment, thread_id: ThreadId) -> id {
+    let class = env.objc.get_known_class("NSRunLoop", &mut env.mem);
+    run_loop_for_thread(env, class, thread_id)
+}

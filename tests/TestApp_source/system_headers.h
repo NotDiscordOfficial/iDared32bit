@@ -96,6 +96,11 @@ void (*method_getImplementation(Method m))(void);
 - (void)removeObserver:(id)observer
             forKeyPath:(NSString *)keyPath
                context:(void *)context;
+- (void)performSelector:(SEL)selector
+               onThread:(id)thread
+             withObject:(id)object
+          waitUntilDone:(BOOL)wait
+                  modes:(id)modes;
 @end
 
 @interface NSAutoreleasePool : NSObject

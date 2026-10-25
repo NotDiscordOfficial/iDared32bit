@@ -418,6 +418,32 @@ forUndefinedKey:(id)key { // NSString*
     }
 }
 
+- (())performSelector:(SEL)sel
+             onThread:(id)thread
+          withObject:(id)arg
+       waitUntilDone:(bool)wait
+               modes:(id)_modes {
+    assert!(!sel.is_null());
+    let thread_id = super::ns_thread::thread_id_for_ns_thread(env, thread)
+        .expect("performSelector:onThread: called with a thread that is not running");
+    if thread_id == env.current_thread {
+        if sel.as_str(&env.mem).ends_with(':') {
+            () = msg_send_no_type_checking(env, (this, sel, arg));
+        } else {
+            assert!(arg.is_null());
+            () = msg_send_no_type_checking(env, (this, sel));
+        }
+        return;
+    }
+
+    let run_loop = super::ns_run_loop::run_loop_for_thread_id(env, thread_id);
+    let semaphore = add_perform_request(env, run_loop, this, sel, arg, None, wait);
+    if wait {
+        sem_wait(env, semaphore);
+        host_destroy_semaphore(env, semaphore);
+    }
+}
+
 // UINibLoadingAdditions protocol
 - (())awakeFromNib {
     // no-op
