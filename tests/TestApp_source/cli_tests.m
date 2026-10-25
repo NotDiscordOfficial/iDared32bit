@@ -6274,9 +6274,9 @@ int test_NSString_writeToFile_error() {
       [NSString stringWithUTF8String:"/__touchhle_missing_parent__/file"];
   NSError *error = nil;
   BOOL wrote = [string writeToFile:path
-                         atomically:NO
-                           encoding:NSUTF8StringEncoding
-                              error:&error];
+                        atomically:NO
+                          encoding:NSUTF8StringEncoding
+                             error:&error];
   BOOL passed = !wrote && error != nil && [error code] == 4;
   [pool drain];
   return passed ? 0 : -1;
