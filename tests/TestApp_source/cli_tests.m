@@ -6231,7 +6231,22 @@ int test_NSURLRequest_creation_without_network_access() {
   }
   [mutableRequest setValue:[NSString stringWithUTF8String:"application/json"]
         forHTTPHeaderField:[NSString stringWithUTF8String:"Content-Type"]];
+  NSURLRequest *copiedRequest = [mutableRequest copy];
+  if (copiedRequest == nil || [copiedRequest URL] == nil ||
+      ![[copiedRequest HTTPMethod] isEqualToString:
+          [NSString stringWithUTF8String:"POST"]] ||
+      [copiedRequest timeoutInterval] != 15.0 ||
+      ![[[copiedRequest allHTTPHeaderFields]
+          objectForKey:[NSString stringWithUTF8String:"Content-Type"]]
+          isEqualToString:[NSString stringWithUTF8String:"application/json"]]) {
+    [copiedRequest release];
+    [mutableRequest release];
+    [request release];
+    [pool drain];
+    return -5;
+  }
 
+  [copiedRequest release];
   [mutableRequest release];
   [request release];
   [pool drain];

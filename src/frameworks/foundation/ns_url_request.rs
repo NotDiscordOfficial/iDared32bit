@@ -113,11 +113,53 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)URL {
     env.objc.borrow::<NSURLRequestHostObject>(this).url
 }
+- (id)HTTPMethod {
+    env.objc.borrow::<NSURLRequestHostObject>(this).http_method
+}
 - (NSTimeInterval)timeoutInterval {
     env.objc.borrow::<NSURLRequestHostObject>(this).timeout_interval
 }
 - (id)HTTPBody {
     env.objc.borrow::<NSURLRequestHostObject>(this).http_body
+}
+- (id)allHTTPHeaderFields {
+    env.objc.borrow::<NSURLRequestHostObject>(this).http_header_fields
+}
+
+// NSCopying implementation. A copied request is immutable, even when the
+// original was an NSMutableURLRequest.
+- (id)copyWithZone:(NSZonePtr)_zone {
+    let (url, cache_policy, timeout_interval, http_method, http_body, http_header_fields) = {
+        let request = env.objc.borrow::<NSURLRequestHostObject>(this);
+        (
+            request.url,
+            request.cache_policy,
+            request.timeout_interval,
+            request.http_method,
+            request.http_body,
+            request.http_header_fields,
+        )
+    };
+
+    let copy: id = msg_class![env; NSURLRequest alloc];
+    let copy: id = msg![env; copy initWithURL:url
+                               cachePolicy:cache_policy
+                           timeoutInterval:timeout_interval];
+    let http_method_copy: id = msg![env; http_method copy];
+    let http_body_copy: id = msg![env; http_body copy];
+    let http_header_fields_copy: id = msg![env; http_header_fields copy];
+    let (old_http_method, old_http_body, old_http_header_fields) = {
+        let copy_object = env.objc.borrow_mut::<NSURLRequestHostObject>(copy);
+        (
+            std::mem::replace(&mut copy_object.http_method, http_method_copy),
+            std::mem::replace(&mut copy_object.http_body, http_body_copy),
+            std::mem::replace(&mut copy_object.http_header_fields, http_header_fields_copy),
+        )
+    };
+    release(env, old_http_method);
+    release(env, old_http_body);
+    release(env, old_http_header_fields);
+    copy
 }
 
 - (())dealloc {

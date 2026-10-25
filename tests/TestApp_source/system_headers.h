@@ -177,6 +177,8 @@ typedef double NSTimeInterval;
 @interface NSURLRequest : NSObject
 - (instancetype)initWithURL:(NSURL *)url;
 - (NSURL *)URL;
+- (NSString *)HTTPMethod;
+- (NSDictionary *)allHTTPHeaderFields;
 - (NSTimeInterval)timeoutInterval;
 @end
 
