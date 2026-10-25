@@ -88,6 +88,14 @@ void (*method_getImplementation(Method m))(void);
 - (id)performSelector:(SEL)selector;
 - (BOOL)respondsToSelector:(SEL)selector;
 - (id)methodSignatureForSelector:(SEL)selector;
+- (void)addObserver:(id)observer
+         forKeyPath:(NSString *)keyPath
+            options:(NSUInteger)options
+            context:(void *)context;
+- (void)removeObserver:(id)observer forKeyPath:(NSString *)keyPath;
+- (void)removeObserver:(id)observer
+            forKeyPath:(NSString *)keyPath
+               context:(void *)context;
 @end
 
 @interface NSAutoreleasePool : NSObject

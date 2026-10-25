@@ -170,6 +170,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
     assert!(!finished && !executing, "NSOperation can only be started once");
     env.objc.borrow_mut::<OperationHostObject>(this).executing = true;
+    super::ns_key_value_observing::notify_bool(env, this, "isExecuting", false, true);
     if queue != nil {
         env.framework_state
             .foundation
@@ -185,12 +186,18 @@ pub const CLASSES: ClassExports = objc_classes! {
         op.executing = false;
         op.finished = true;
     }
+    super::ns_key_value_observing::notify_bool(env, this, "isExecuting", true, false);
+    super::ns_key_value_observing::notify_bool(env, this, "isFinished", false, true);
     if queue != nil {
         operation_finished(env, this, queue);
     }
 }
 - (())cancel {
+    let was_cancelled = env.objc.borrow::<OperationHostObject>(this).cancelled;
     env.objc.borrow_mut::<OperationHostObject>(this).cancelled = true;
+    if !was_cancelled {
+        super::ns_key_value_observing::notify_bool(env, this, "isCancelled", false, true);
+    }
     let queue = env.objc.borrow::<OperationHostObject>(this).queue;
     if queue != nil {
         start_ready_operations(env, queue);
@@ -282,6 +289,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 - (())dealloc {
+    super::ns_key_value_observing::remove_all_for_object(env, this);
     let op = env.objc.borrow_mut::<OperationHostObject>(this);
     let dependencies = std::mem::take(&mut op.dependencies);
     let name = std::mem::replace(&mut op.name, nil);

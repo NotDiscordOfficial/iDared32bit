@@ -6005,6 +6005,24 @@ int test_wcsftime() {
 }
 @end
 
+@interface OperationKVOObserver : NSObject {
+@public
+  BOOL observedFinished;
+}
+@end
+
+@implementation OperationKVOObserver
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary *)change
+                       context:(void *)context {
+  if ([keyPath isEqualToString:[NSString stringWithUTF8String:"isFinished"]] &&
+      [[change objectForKey:[NSString stringWithUTF8String:"new"]] boolValue]) {
+    observedFinished = YES;
+  }
+}
+@end
+
 static BOOL g_deallocTrackerDidDealloc = NO;
 
 @interface DeallocTracker : NSObject
@@ -6186,8 +6204,18 @@ int test_NSInvocationOperation() {
     return -1;
   }
 
+  OperationKVOObserver *observer = [OperationKVOObserver new];
+  [operation addObserver:observer
+              forKeyPath:[NSString stringWithUTF8String:"isFinished"]
+                 options:1
+                 context:NULL];
   [operation start];
-  if (target->receivedValue != value || ![operation isFinished]) {
+  BOOL observedFinished = observer->observedFinished;
+  [operation removeObserver:observer
+                 forKeyPath:[NSString stringWithUTF8String:"isFinished"]];
+  [observer release];
+  if (target->receivedValue != value || ![operation isFinished] ||
+      !observedFinished) {
     [pool drain];
     return -2;
   }

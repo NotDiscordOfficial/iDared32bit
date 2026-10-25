@@ -35,6 +35,7 @@ pub mod ns_index_path;
 pub mod ns_invocation;
 pub mod ns_keyed_archiver;
 pub mod ns_keyed_unarchiver;
+pub mod ns_key_value_observing;
 pub mod ns_locale;
 pub mod ns_lock;
 pub mod ns_log;
@@ -134,6 +135,7 @@ pub struct State {
     ns_bundle: ns_bundle::State,
     ns_file_manager: ns_file_manager::State,
     ns_locale: ns_locale::State,
+    ns_key_value_observing: ns_key_value_observing::State,
     ns_notification_center: ns_notification_center::State,
     ns_null: ns_null::State,
     ns_operation: ns_operation::State,

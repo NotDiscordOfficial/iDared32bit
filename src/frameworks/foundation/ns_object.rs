@@ -147,6 +147,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     log_dbg!("[{:?} dealloc]", this);
+    super::ns_key_value_observing::remove_all_for_object(env, this);
     // Clang emits this method for Objective-C classes with non-trivial C++
     // ivars. The Objective-C runtime calls it before releasing the storage.
     if env
@@ -157,6 +158,35 @@ pub const CLASSES: ClassExports = objc_classes! {
         let _: () = msg_send(env, (this, selector));
     }
     env.objc.dealloc_object(this, &mut env.mem)
+}
+
+- (())addObserver:(id)observer
+        forKeyPath:(id)key_path
+           options:(NSUInteger)options
+           context:(MutVoidPtr)context {
+    super::ns_key_value_observing::add_observer(
+        env, this, observer, key_path, options, context,
+    );
+}
+
+- (())removeObserver:(id)observer forKeyPath:(id)key_path {
+    let key_path = to_rust_string(env, key_path).into_owned();
+    super::ns_key_value_observing::remove_observer(
+        env, this, observer, Some(&key_path), None,
+    );
+}
+
+- (())removeObserver:(id)observer
+           forKeyPath:(id)key_path
+              context:(MutVoidPtr)context {
+    let key_path = to_rust_string(env, key_path).into_owned();
+    super::ns_key_value_observing::remove_observer(
+        env, this, observer, Some(&key_path), Some(context),
+    );
+}
+
+- (())removeObserver:(id)observer {
+    super::ns_key_value_observing::remove_observer(env, this, observer, None, None);
 }
 
 - (Class)class {
