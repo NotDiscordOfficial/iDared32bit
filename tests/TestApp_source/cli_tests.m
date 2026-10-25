@@ -6225,9 +6225,9 @@ int test_NSObject_performSelector_onThread() {
   NSThread *thread = [NSThread currentThread];
   SEL selector =
       NSSelectorFromString([NSString stringWithUTF8String:"storeValue:"]);
-  NSArray *modes =
-      [NSArray arrayWithObjects:[NSString stringWithUTF8String:"NSDefaultRunLoopMode"],
-                                nil];
+  NSString *defaultMode =
+      [NSString stringWithUTF8String:"NSDefaultRunLoopMode"];
+  NSArray *modes = [NSArray arrayWithObjects:defaultMode, nil];
   [target performSelector:selector
                  onThread:thread
                withObject:value

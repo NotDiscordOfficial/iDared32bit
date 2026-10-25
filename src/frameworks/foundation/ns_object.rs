@@ -352,7 +352,7 @@ forUndefinedKey:(id)key { // NSString*
 
 - (())performSelector:(SEL)sel withObject:(id)arg afterDelay:(NSTimeInterval)delay {
     let run_loop: id = msg_class![env; NSRunLoop currentRunLoop];
-    add_perform_request(env, run_loop, this, sel, arg, Some(delay), false);
+    add_perform_request(env, run_loop, this, sel, arg, None, Some(delay), false);
 }
 
 - (())performSelectorOnMainThread:(SEL)sel withObject:(id)arg waitUntilDone:(bool)wait {
@@ -411,7 +411,7 @@ forUndefinedKey:(id)key { // NSString*
     }
 
     let run_loop: id = msg_class![env; NSRunLoop mainRunLoop];
-    let sem = add_perform_request(env, run_loop, this, sel, arg, None, wait);
+    let sem = add_perform_request(env, run_loop, this, sel, arg, None, None, wait);
     if wait {
         sem_wait(env, sem);
         host_destroy_semaphore(env, sem);
@@ -422,7 +422,7 @@ forUndefinedKey:(id)key { // NSString*
              onThread:(id)thread
           withObject:(id)arg
        waitUntilDone:(bool)wait
-               modes:(id)_modes {
+               modes:(id)modes {
     assert!(!sel.is_null());
     let thread_id = super::ns_thread::thread_id_for_ns_thread(env, thread)
         .expect("performSelector:onThread: called with a thread that is not running");
@@ -437,7 +437,7 @@ forUndefinedKey:(id)key { // NSString*
     }
 
     let run_loop = super::ns_run_loop::run_loop_for_thread_id(env, thread_id);
-    let semaphore = add_perform_request(env, run_loop, this, sel, arg, None, wait);
+    let semaphore = add_perform_request(env, run_loop, this, sel, arg, Some(modes), None, wait);
     if wait {
         sem_wait(env, semaphore);
         host_destroy_semaphore(env, semaphore);

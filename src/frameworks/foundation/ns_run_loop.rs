@@ -76,6 +76,7 @@ struct ObjectSelectorSource {
     target: id,
     selector: SEL,
     argument: id,
+    modes: id,
     due_by: Option<Instant>,
     // Used for waitUntilDone:, (uses NULL if not waiting)
     semaphore: MutPtr<sem_t>,
@@ -303,6 +304,7 @@ pub(super) fn add_perform_request(
     target: id,
     selector: SEL,
     argument: id,
+    modes: Option<id>,
     delay: Option<f64>,
     should_sync: bool,
 ) -> MutPtr<sem_t> {
@@ -317,6 +319,8 @@ pub(super) fn add_perform_request(
     };
     retain(env, target);
     retain(env, argument);
+    let modes = modes.unwrap_or(nil);
+    retain(env, modes);
 
     let NSRunLoopHostObject {
         selector_objects, ..
@@ -330,6 +334,7 @@ pub(super) fn add_perform_request(
         target,
         selector,
         argument,
+        modes,
         due_by,
         semaphore,
     });
@@ -368,11 +373,13 @@ pub(super) fn cancel_perform_requests(
             let ObjectSelectorSource {
                 target,
                 argument,
+                modes,
                 semaphore,
                 ..
             } = obj;
             release(env, target);
             release(env, argument);
+            release(env, modes);
             if !semaphore.is_null() {
                 sem_post(env, semaphore);
             }
@@ -486,14 +493,24 @@ pub fn run_run_loop(
         }
 
         loop {
-            let selector_objects = &mut env
+            let selector_objects: Vec<_> = env
                 .objc
-                .borrow_mut::<NSRunLoopHostObject>(run_loop)
-                .selector_objects;
+                .borrow::<NSRunLoopHostObject>(run_loop)
+                .selector_objects
+                .iter()
+                .map(|oss| (oss.due_by, oss.modes))
+                .collect();
+            let default_mode = ns_string::get_static_str(env, NSDefaultRunLoopMode);
+            let common_mode = ns_string::get_static_str(env, NSRunLoopCommonModes);
             let to_run = selector_objects
                 .iter()
-                .enumerate()
-                .find(|(_, oss)| oss.due_by.is_none_or(|due_by| Instant::now() >= due_by))
+                .copied()
+                .position(|(due_by, modes)| {
+                    due_by.is_none_or(|due_by| Instant::now() >= due_by)
+                        && (modes.is_null()
+                            || msg![env; modes containsObject:default_mode]
+                            || msg![env; modes containsObject:common_mode])
+                })
                 .map(|(index, _)| index);
 
             match to_run {
@@ -503,9 +520,15 @@ pub fn run_run_loop(
                         target,
                         selector,
                         argument,
+                        modes,
                         due_by: _,
                         semaphore,
-                    } = selector_objects.remove(index).unwrap();
+                    } = env
+                        .objc
+                        .borrow_mut::<NSRunLoopHostObject>(run_loop)
+                        .selector_objects
+                        .remove(index)
+                        .unwrap();
                     log_dbg!("Running object selector request {target:?} {:?} {argument:?} on run loop {run_loop:?}", selector.as_str(env.mem.as_mut()));
 
                     if selector.as_str(&env.mem).ends_with(':') {
@@ -517,14 +540,15 @@ pub fn run_run_loop(
 
                     release(env, target);
                     release(env, argument);
+                    release(env, modes);
 
                     if !semaphore.is_null() {
                         sem_post(env, semaphore);
                     }
                 }
                 None => {
-                    for oss in selector_objects {
-                        limit_sleep_time(&mut sleep_until, oss.due_by);
+                    for (due_by, _) in selector_objects {
+                        limit_sleep_time(&mut sleep_until, due_by);
                     }
                     break;
                 }
