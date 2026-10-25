@@ -57,7 +57,8 @@ pub fn add_observer(
         // the Objective-C observable-property contract.
         let class = msg![env; object class];
         let operation_class = env.objc.get_known_class("NSOperation", &mut env.mem);
-        let current_value = if env.objc.class_is_subclass_of(class, operation_class) {
+        let current_value: Option<bool> =
+            if env.objc.class_is_subclass_of(class, operation_class) {
             match key_path.as_str() {
                 "isCancelled" => Some(msg![env; object isCancelled]),
                 "isExecuting" => Some(msg![env; object isExecuting]),
