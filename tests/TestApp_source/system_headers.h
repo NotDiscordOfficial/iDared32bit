@@ -179,6 +179,7 @@ enum { NSUTF8StringEncoding = 4 };
 @interface NSFileManager : NSObject
 + (instancetype)defaultManager;
 - (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDirectory;
+- (NSDictionary *)attributesOfItemAtPath:(NSString *)path error:(NSError **)error;
 - (NSArray *)contentsOfDirectoryAtPath:(NSString *)path error:(NSError **)error;
 - (BOOL)createDirectoryAtPath:(NSString *)path
     withIntermediateDirectories:(BOOL)createIntermediates
